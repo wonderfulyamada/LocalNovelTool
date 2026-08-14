@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .models import Chapter, Episode, Reference, SearchResult
+from .models import Chapter, Episode, PlotItem, Reference, SearchResult, TimelineItem
 from .project import NovelProject
 
 
@@ -81,6 +81,57 @@ class CoreAPI:
 
     def recent_references(self) -> list[Reference]:
         return self._require().recent_reference_items()
+
+    def plot_items(self) -> list[PlotItem]:
+        return self._require().plot_items
+
+    def create_plot_item(
+        self,
+        title: str,
+        content: str = "",
+        chapter_id: str | None = None,
+        episode_id: str | None = None,
+    ) -> PlotItem:
+        return self._require().create_plot_item(
+            title, content, chapter_id, episode_id
+        )
+
+    def update_plot_item(
+        self,
+        plot_id: str,
+        title: str,
+        content: str,
+        chapter_id: str | None,
+        episode_id: str | None,
+    ) -> None:
+        self._require().update_plot_item(
+            plot_id, title, content, chapter_id, episode_id
+        )
+
+    def delete_plot_item(self, plot_id: str) -> None:
+        self._require().delete_plot_item(plot_id)
+
+    def reorder_plot_items(self, ordered_ids: list[str]) -> None:
+        self._require().reorder_plot_items(ordered_ids)
+
+    def timeline_items(self) -> list[TimelineItem]:
+        return self._require().timeline_items
+
+    def create_timeline_item(
+        self, point: str, title: str, content: str = ""
+    ) -> TimelineItem:
+        return self._require().create_timeline_item(point, title, content)
+
+    def update_timeline_item(
+        self, timeline_id: str, point: str, title: str, content: str
+    ) -> None:
+        self._require().update_timeline_item(timeline_id, point, title, content)
+
+    def delete_timeline_item(self, timeline_id: str) -> None:
+        self._require().delete_timeline_item(timeline_id)
+
+    def reorder_timeline_items(self, ordered_ids: list[str]) -> None:
+        self._require().reorder_timeline_items(ordered_ids)
 
     def search(self, query: str) -> list[SearchResult]:
         return self._require().search(query)

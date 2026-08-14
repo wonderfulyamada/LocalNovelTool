@@ -19,7 +19,7 @@ class SearchTab(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.input = QLineEdit()
-        self.input.setPlaceholderText("本文・話メモ・資料を横断検索")
+        self.input.setPlaceholderText("本文・話メモ・資料・展開・時系列を横断検索")
         button = QPushButton("検索")
         self.results = QTreeWidget()
         self.results.setHeaderLabels(["種類", "場所", "行", "内容"])
@@ -35,17 +35,30 @@ class SearchTab(QWidget):
         button.clicked.connect(self._emit_search)
         self.input.returnPressed.connect(self._emit_search)
         self.results.itemDoubleClicked.connect(self._activate)
+        self.results.itemSelectionChanged.connect(self._activate_current)
 
     def _emit_search(self) -> None:
         self.search_requested.emit(self.input.text())
 
     def set_results(self, results) -> None:
         self.results.clear()
-        kind_names = {"episode": "本文", "episode_note": "話メモ", "reference": "資料"}
+        kind_names = {
+            "episode": "本文",
+            "episode_note": "話メモ",
+            "plot": "展開",
+            "timeline": "時系列",
+        }
         for result in results:
+            kind_name = (
+                result.category
+                if result.kind == "reference"
+                else kind_names.get(result.kind, result.kind)
+            )
             where = f"{result.category} / {result.title}" if result.category else result.title
+            if result.kind == "reference":
+                where = result.title
             item = QTreeWidgetItem([
-                kind_names.get(result.kind, result.kind),
+                kind_name,
                 where,
                 str(result.line),
                 result.excerpt,
@@ -59,3 +72,8 @@ class SearchTab(QWidget):
         result = item.data(0, 1000)
         if result is not None:
             self.result_activated.emit(result)
+
+    def _activate_current(self) -> None:
+        item = self.results.currentItem()
+        if item is not None:
+            self._activate(item)

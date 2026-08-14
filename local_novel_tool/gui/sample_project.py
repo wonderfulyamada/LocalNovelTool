@@ -37,7 +37,9 @@ TABS_BODY = """上にあるタブを切り替えて、各機能を試してみ�
 
 「文章検索」では、本文や資料から言葉を横断検索できます。
 
-「資料」には、キャラクターや世界観、展開メモなどを保存できます。
+「資料」には、登場人物やアイテム、世界観などを保存できます。
+
+「展開」と「時系列」では、物語の流れを本文とは別に確認できます。
 
 左側の話はドラッグ＆ドロップで並び替えたり、別の章へ移動したりできます。
 
@@ -48,11 +50,17 @@ WELCOME_NOTE = """* このタブは話ごとの展開メモに使えます
 * 本文を書きながら「次に何を書くか」を置いておく用途を想定"""
 
 SAMPLE_REFERENCES = (
-    ("キャラ", "サンプル主人公", "資料タブでは登場人物の設定などを自由に保存できます。"),
+    ("登場人物", "サンプル主人公", "資料タブでは登場人物の設定などを自由に保存できます。"),
+    ("アイテム", "サンプルアイテム", "作中に登場する道具や持ち物のメモを置けます。"),
     ("世界観", "サンプル世界", "場所、組織、能力、用語など、本文とは別に確認したい情報を置けます。"),
-    ("展開", "サンプル展開", "作品全体や章単位の展開を整理するためのメモとして使えます。"),
     ("その他", "使い方メモ", "分類に迷った情報はここへ置けます。"),
 )
+
+SAMPLE_PLOT = (
+    "サンプル作品を書く",
+    "各タブを試したあと、自分の作品を作ってみましょう。",
+)
+SAMPLE_TIMELINE = ("現在", "LocalNovelToolを使い始める")
 
 
 def initialize_sample_project(
@@ -77,6 +85,9 @@ def initialize_sample_project(
         for category, title, content in SAMPLE_REFERENCES:
             reference = api.create_reference(category, title)
             api.save_reference(reference.id, content)
+
+        api.create_plot_item(SAMPLE_PLOT[0], SAMPLE_PLOT[1])
+        api.create_timeline_item(SAMPLE_TIMELINE[0], SAMPLE_TIMELINE[1])
 
         settings.setValue(SAMPLE_INITIALIZED_KEY, True)
         settings.sync()

@@ -1,6 +1,6 @@
 [project]
 name = "local-novel-tool"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local-first lightweight novel writing and reference tool"
 requires-python = ">=3.10"
 dependencies = ["PySide6==6.11.1"]

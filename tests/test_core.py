@@ -19,7 +19,7 @@ def test_create_save_search_and_reorder(tmp_path: Path) -> None:
     ep2 = api.create_episode(ch1.id, "第二話")
     api.save_episode_body(ep1.id, "｜白雨《しらさめ》を抜いた。")
     api.save_episode_note(ep2.id, "次は港へ行く")
-    ref = api.create_reference("キャラ", "クイナ")
+    ref = api.create_reference("登場人物", "クイナ")
     api.save_reference(ref.id, "愛刀は白雨")
 
     hits = api.search("白雨")

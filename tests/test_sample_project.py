@@ -9,8 +9,10 @@ from PySide6.QtCore import QSettings
 from local_novel_tool.core.api import CoreAPI
 from local_novel_tool.gui.sample_project import (
     SAMPLE_INITIALIZED_KEY,
+    SAMPLE_PLOT,
     SAMPLE_PROJECT_TITLE,
     SAMPLE_REFERENCES,
+    SAMPLE_TIMELINE,
     TABS_BODY,
     WELCOME_BODY,
     WELCOME_NOTE,
@@ -46,6 +48,12 @@ def test_first_launch_creates_complete_sample_project(tmp_path: Path) -> None:
         (reference.category, reference.title, api.load_reference(reference.id))
         for reference in project.references
     ] == list(SAMPLE_REFERENCES)
+    assert [(item.title, item.content) for item in project.plot_items] == [
+        SAMPLE_PLOT
+    ]
+    assert [(item.point, item.title) for item in project.timeline_items] == [
+        SAMPLE_TIMELINE
+    ]
 
 
 def test_initialized_sample_is_not_created_again(tmp_path: Path, monkeypatch) -> None:

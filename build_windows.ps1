@@ -4,7 +4,7 @@ $projectRoot = $PSScriptRoot
 $deployCommand = Join-Path $projectRoot ".venv\Scripts\pyside6-deploy.exe"
 $configFile = Join-Path $projectRoot "pysidedeploy.spec"
 $builtApp = Join-Path $projectRoot "build\LocalNovelTool.dist"
-$distribution = Join-Path $projectRoot "dist\LocalNovelTool_v0.1.0"
+$distribution = Join-Path $projectRoot "dist\LocalNovelTool_v0.2.0"
 
 if (-not (Test-Path -LiteralPath $deployCommand -PathType Leaf)) {
     throw "pyside6-deploy was not found. Install requirements-dev.txt first."

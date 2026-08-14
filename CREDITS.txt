@@ -1,4 +1,4 @@
-Local Novel Tool v0.1.0
+Local Novel Tool v0.2.0
 Copyright (c) 2026 Wonderful Yamada
 
 Built with:

@@ -57,6 +57,48 @@ class Reference:
 
 
 @dataclass
+class PlotItem:
+    id: str
+    title: str
+    content: str
+    chapter_id: str | None = None
+    episode_id: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "PlotItem":
+        return cls(
+            id=data["id"],
+            title=data.get("title", ""),
+            content=data.get("content", ""),
+            chapter_id=data.get("chapter_id"),
+            episode_id=data.get("episode_id"),
+        )
+
+
+@dataclass
+class TimelineItem:
+    id: str
+    point: str
+    title: str
+    content: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "TimelineItem":
+        return cls(
+            id=data["id"],
+            point=data.get("point", ""),
+            title=data.get("title", ""),
+            content=data.get("content", ""),
+        )
+
+
+@dataclass
 class SearchResult:
     kind: str
     source_id: str
