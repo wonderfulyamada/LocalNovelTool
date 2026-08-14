@@ -22,7 +22,11 @@ from .plot_tab import PlotTab
 from .preview_tab import PreviewTab
 from .project_tree import ProjectTree
 from .reference_tab import ReferenceTab
-from .sample_project import initialize_sample_project
+from .sample_project import (
+    SAMPLE_INITIALIZED_KEY,
+    initialize_sample_project,
+    recreate_tutorial_project,
+)
 from .search_tab import SearchTab
 from .timeline_tab import TimelineTab
 
@@ -42,6 +46,8 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.tabBar().setStyleSheet(
             "QTabBar::tab { min-height: 24px; padding: 6px 14px; font-size: 10pt; }"
+            "QTabBar::tab:selected { font-weight: bold; background: palette(base); "
+            "border: 1px solid palette(mid); border-bottom: 2px solid palette(highlight); }"
         )
         self.tabs.tabBar().setUsesScrollButtons(True)
         self.tabs.tabBar().setElideMode(Qt.TextElideMode.ElideRight)
@@ -93,6 +99,9 @@ class MainWindow(QMainWindow):
 
     def _build_menu(self) -> None:
         help_menu = self.menuBar().addMenu("ヘルプ")
+        tutorial_action = QAction("チュートリアルを再作成", self)
+        tutorial_action.triggered.connect(self.recreate_tutorial)
+        help_menu.addAction(tutorial_action)
         about_action = QAction("このソフトについて", self)
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
@@ -141,12 +150,9 @@ class MainWindow(QMainWindow):
                 pass
 
     def _try_open_initial_project(self) -> None:
-        documents = Path(
-            QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation)
-        )
         try:
             sample = initialize_sample_project(
-                self.api, self.settings, documents / "LocalNovelTool"
+                self.api, self.settings, self._tutorial_parent()
             )
         except Exception as exc:
             QMessageBox.warning(self, "サンプル作成失敗", str(exc))
@@ -155,6 +161,34 @@ class MainWindow(QMainWindow):
                 self._after_project_loaded()
                 return
         self._try_open_last_project()
+
+    @staticmethod
+    def _tutorial_parent() -> Path:
+        documents = QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.DocumentsLocation
+        )
+        if not documents:
+            raise RuntimeError("ドキュメントフォルダが見つかりません。")
+        return Path(documents) / "LocalNovelTool"
+
+    def recreate_tutorial(self) -> None:
+        answer = QMessageBox.question(
+            self,
+            "チュートリアルを再作成",
+            "チュートリアル作品を最新版へ戻しますか？\n現在のチュートリアルへの編集は失われます。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self._flush_editors()
+        try:
+            recreate_tutorial_project(self.api, self._tutorial_parent())
+            self.settings.setValue(SAMPLE_INITIALIZED_KEY, True)
+            self.settings.sync()
+            self._after_project_loaded()
+        except Exception as exc:
+            QMessageBox.critical(self, "再作成失敗", str(exc))
 
     def _flush_editors(self) -> None:
         self.editor_tab.flush()

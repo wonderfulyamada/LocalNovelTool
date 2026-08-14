@@ -45,3 +45,6 @@ Copy-Item -LiteralPath (Join-Path $projectRoot "README.md") -Destination $distri
 Copy-Item -LiteralPath (Join-Path $projectRoot "LICENSE.txt") -Destination $distribution
 Copy-Item -LiteralPath (Join-Path $projectRoot "THIRD_PARTY_LICENSES.txt") -Destination $distribution
 Copy-Item -LiteralPath (Join-Path $projectRoot "CREDITS.txt") -Destination $distribution
+$distributionResources = Join-Path $distribution "resources"
+New-Item -ItemType Directory -Path $distributionResources -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $projectRoot "resources\tutorial") -Destination $distributionResources -Recurse
