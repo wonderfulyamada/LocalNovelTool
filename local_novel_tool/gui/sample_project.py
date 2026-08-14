@@ -9,58 +9,100 @@ from local_novel_tool.core.api import CoreAPI
 from local_novel_tool.core.project import NovelProject
 
 SAMPLE_INITIALIZED_KEY = "sample_project_initialized"
-SAMPLE_PROJECT_TITLE = "LocalNovelTool サンプル"
+SAMPLE_PROJECT_TITLE = "LocalNovelTool チュートリアル"
 
-WELCOME_BODY = """LocalNovelToolへようこそ。
+TUTORIAL_CHAPTERS = (
+    (
+        "まず触ってみよう",
+        (
+            (
+                "本文を書いてみよう",
+                """「本文」タブは、小説の文章を書く場所です。入力した内容は自動保存されます。
 
-このソフトは、小説を書きながら「次の展開どうするんだっけ？」「この設定どこに書いたっけ？」をすぐ確認するための、シンプルなローカル執筆ツールです。
-
-左側には章と話が並びます。
-話を選ぶと、この「本文」タブで文章を編集できます。
-
-文章は自動保存されるので、基本的に保存ボタンを気にする必要はありません。
-
-ルビは、たとえば
+【試してみよう】
+この下に一文書く → 左の別の話へ移動する → この話へ戻る、の順に操作して、文章が残っていることを確認してください。""",
+            ),
+            (
+                "ルビとプレビュー",
+                """ルビは次のように入力します。
 
 ｜白雨《しらさめ》
 
-のように入力できます。
+【試してみよう】
+上の「プレビュー」タブを開き、白雨にルビが付くことを確認してください。「横書き」「縦書き」も切り替えてみましょう。""",
+            ),
+            (
+                "話メモを使おう",
+                """「話メモ」は、本文には書かない展開案や忘れたくないことを話ごとに残す場所です。
 
-「プレビュー」タブでは、ルビを反映した状態で文章を確認できます。
-横書きと縦書きも切り替えられます。
+【試してみよう】
+上の「話メモ」タブを開き、用意されているメモの下に一行追加してください。""",
+            ),
+            (
+                "話を並べ替えてみよう",
+                """左側には章と話のツリーがあります。話はドラッグ＆ドロップで並べ替えたり、別の章へ移動できます。
 
-このサンプル作品は自由に編集・削除してください。"""
+【試してみよう】
+この話を上下へ動かすか、「設定を整理しよう」の章へ移動してから、元の場所へ戻してみましょう。""",
+            ),
+        ),
+    ),
+    (
+        "設定を整理しよう",
+        (
+            (
+                "資料を使おう",
+                """「資料」タブには、登場人物・アイテム・世界観・その他の自由メモを置けます。
 
-TABS_BODY = """上にあるタブを切り替えて、各機能を試してみてください。
+【試してみよう】
+資料タブを開き、用意された4件を選んで内容を確認してください。自分で1件追加しても構いません。""",
+            ),
+            (
+                "展開を整理しよう",
+                """「展開」タブでは、物語で起きる出来事を本文の話順とは別に整理できます。章や話との関連付けも任意です。
 
-「話メモ」には、その話で書きたい展開や忘れたくない内容を残せます。
+【試してみよう】
+用意された3件を選んで編集し、ドラッグ＆ドロップで順番を変えてみましょう。""",
+            ),
+            (
+                "時系列を整理しよう",
+                """「時系列」タブでは、「2年前」「翌朝」など自由な時点で出来事を並べられます。本文の話順とは独立しています。
 
-「文章検索」では、本文や資料から言葉を横断検索できます。
+【試してみよう】
+用意された3件を確認し、1件追加するかドラッグ＆ドロップで順番を変えてみましょう。""",
+            ),
+            (
+                "文章検索を使おう",
+                """「文章検索」は、本文・話メモ・資料・展開・時系列をまとめて検索します。
 
-「資料」には、登場人物やアイテム、世界観などを保存できます。
+【試してみよう】
+「白雨」で検索してください。本文と資料の結果が表示されます。結果を選び、元の項目へ移動できることも確認しましょう。""",
+            ),
+        ),
+    ),
+)
 
-「展開」と「時系列」では、物語の流れを本文とは別に確認できます。
-
-左側の話はドラッグ＆ドロップで並び替えたり、別の章へ移動したりできます。
-
-この第2話を動かして試してみるのもおすすめです。"""
-
-WELCOME_NOTE = """* このタブは話ごとの展開メモに使えます
-* 箇条書きでも文章でも自由
-* 本文を書きながら「次に何を書くか」を置いておく用途を想定"""
+TUTORIAL_NOTE = """* 次の場面で主人公に何をさせるか考える
+* 忘れたくない伏線をここへ書く
+* この下に自分のメモを一行追加してみる"""
 
 SAMPLE_REFERENCES = (
-    ("登場人物", "サンプル主人公", "資料タブでは登場人物の設定などを自由に保存できます。"),
-    ("アイテム", "サンプルアイテム", "作中に登場する道具や持ち物のメモを置けます。"),
-    ("世界観", "サンプル世界", "場所、組織、能力、用語など、本文とは別に確認したい情報を置けます。"),
-    ("その他", "使い方メモ", "分類に迷った情報はここへ置けます。"),
+    ("登場人物", "サンプル主人公", "町へ来たばかりの旅人。困っている人を放っておけない。"),
+    ("アイテム", "白雨", "主人公が持つ刀。読みは「しらさめ」。"),
+    ("世界観", "サンプルの町", "旅人が集まる小さな宿場町。最近、不思議な事件が起きている。"),
+    ("その他", "自由メモの例", "分類に迷った情報や、あとで整理したい断片を自由に置けます。"),
 )
 
-SAMPLE_PLOT = (
-    "サンプル作品を書く",
-    "各タブを試したあと、自分の作品を作ってみましょう。",
+SAMPLE_PLOTS = (
+    ("町へ到着", "主人公がサンプルの町へ到着する。"),
+    ("事件に巻き込まれる", "町で起きた事件に主人公が巻き込まれる。"),
+    ("犯人を追う", "白雨を手に、事件の犯人を追う。"),
 )
-SAMPLE_TIMELINE = ("現在", "LocalNovelToolを使い始める")
+SAMPLE_TIMELINE = (
+    ("2年前", "主人公が故郷を出る", ""),
+    ("半年前", "事件が発生", ""),
+    ("現在", "物語開始", ""),
+)
 
 
 def initialize_sample_project(
@@ -75,19 +117,23 @@ def initialize_sample_project(
     try:
         project = api.create_project(parent, SAMPLE_PROJECT_TITLE)
         sample_root = project.root
-        chapter = api.create_chapter("はじめに")
-        welcome = api.create_episode(chapter.id, "ようこそ")
-        tabs = api.create_episode(chapter.id, "各タブを試してみる")
-        api.save_episode_body(welcome.id, WELCOME_BODY)
-        api.save_episode_body(tabs.id, TABS_BODY)
-        api.save_episode_note(welcome.id, WELCOME_NOTE)
+        episodes = {}
+        for chapter_title, episode_items in TUTORIAL_CHAPTERS:
+            chapter = api.create_chapter(chapter_title)
+            for episode_title, body in episode_items:
+                episode = api.create_episode(chapter.id, episode_title)
+                api.save_episode_body(episode.id, body)
+                episodes[episode_title] = episode
+        api.save_episode_note(episodes["話メモを使おう"].id, TUTORIAL_NOTE)
 
         for category, title, content in SAMPLE_REFERENCES:
             reference = api.create_reference(category, title)
             api.save_reference(reference.id, content)
 
-        api.create_plot_item(SAMPLE_PLOT[0], SAMPLE_PLOT[1])
-        api.create_timeline_item(SAMPLE_TIMELINE[0], SAMPLE_TIMELINE[1])
+        for title, content in SAMPLE_PLOTS:
+            api.create_plot_item(title, content)
+        for point, title, content in SAMPLE_TIMELINE:
+            api.create_timeline_item(point, title, content)
 
         settings.setValue(SAMPLE_INITIALIZED_KEY, True)
         settings.sync()
