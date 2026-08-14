@@ -2,6 +2,10 @@
 
 完全ローカルで動く、長編小説向けの軽量執筆・資料確認ツールです。
 
+## Screenshot
+
+![LocalNovelTool](docs/screenshot.png)
+
 ## 現在の機能
 
 - 作品フォルダの新規作成 / 読み込み
