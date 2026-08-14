@@ -6,7 +6,6 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .events import EventBus
 from .models import Chapter, Episode, PlotItem, Reference, SearchResult, TimelineItem
 
 PROJECT_FILE = "project.json"
@@ -41,7 +40,6 @@ class NovelProject:
         self.timeline_items = [
             TimelineItem.from_dict(item) for item in data.get("timeline_items", [])
         ]
-        self.events = EventBus()
 
     @classmethod
     def create(cls, parent: Path, title: str) -> "NovelProject":
@@ -115,7 +113,6 @@ class NovelProject:
         with tmp.open("w", encoding="utf-8", newline="\n") as fp:
             json.dump(self._metadata(), fp, ensure_ascii=False, indent=2)
         tmp.replace(self.root / PROJECT_FILE)
-        self.events.emit("project.saved")
 
     @staticmethod
     def _new_id(prefix: str) -> str:
@@ -144,14 +141,12 @@ class NovelProject:
         chapter = Chapter(id=self._new_id("ch"), title=title.strip() or "新しい章", episodes=[])
         self.chapters.append(chapter)
         self.save_metadata()
-        self.events.emit("chapter.created", chapter_id=chapter.id)
         return chapter
 
     def rename_chapter(self, chapter_id: str, title: str) -> None:
         chapter = self.get_chapter(chapter_id)
         chapter.title = title.strip() or chapter.title
         self.save_metadata()
-        self.events.emit("chapter.updated", chapter_id=chapter_id)
 
     def delete_chapter(self, chapter_id: str) -> None:
         chapter = self.get_chapter(chapter_id)
@@ -159,7 +154,6 @@ class NovelProject:
             self._delete_episode_files(episode)
         self.chapters = [item for item in self.chapters if item.id != chapter_id]
         self.save_metadata()
-        self.events.emit("chapter.deleted", chapter_id=chapter_id)
 
     def create_episode(self, chapter_id: str, title: str) -> Episode:
         chapter = self.get_chapter(chapter_id)
@@ -174,14 +168,12 @@ class NovelProject:
         self.write_text(episode.body_file, "")
         self.write_text(episode.note_file, "")
         self.save_metadata()
-        self.events.emit("episode.created", episode_id=episode.id)
         return episode
 
     def rename_episode(self, episode_id: str, title: str) -> None:
         episode = self.get_episode(episode_id)
         episode.title = title.strip() or episode.title
         self.save_metadata()
-        self.events.emit("episode.updated", episode_id=episode_id)
 
     def _delete_episode_files(self, episode: Episode) -> None:
         for relative in (episode.body_file, episode.note_file):
@@ -195,7 +187,6 @@ class NovelProject:
         self._delete_episode_files(episode)
         chapter.episodes = [item for item in chapter.episodes if item.id != episode_id]
         self.save_metadata()
-        self.events.emit("episode.deleted", episode_id=episode_id)
 
     def reorder_structure(self, ordered: list[tuple[str, list[str]]]) -> None:
         chapter_map = {chapter.id: chapter for chapter in self.chapters}
@@ -218,7 +209,6 @@ class NovelProject:
             new_chapters.append(chapter)
         self.chapters = new_chapters
         self.save_metadata()
-        self.events.emit("structure.reordered")
 
     def read_text(self, relative_path: str) -> str:
         path = self.root / relative_path
@@ -239,7 +229,6 @@ class NovelProject:
     def save_episode_body(self, episode_id: str, text: str) -> None:
         episode = self.get_episode(episode_id)
         self.write_text(episode.body_file, text)
-        self.events.emit("episode.body_saved", episode_id=episode_id)
 
     def load_episode_note(self, episode_id: str) -> str:
         return self.read_text(self.get_episode(episode_id).note_file)
@@ -247,7 +236,6 @@ class NovelProject:
     def save_episode_note(self, episode_id: str, text: str) -> None:
         episode = self.get_episode(episode_id)
         self.write_text(episode.note_file, text)
-        self.events.emit("episode.note_saved", episode_id=episode_id)
 
     def create_reference(self, category: str, title: str) -> Reference:
         if category not in REFERENCE_CATEGORIES:
@@ -262,7 +250,6 @@ class NovelProject:
         self.references.append(ref)
         self.write_text(ref.file, "")
         self.save_metadata()
-        self.events.emit("reference.created", reference_id=ref.id)
         return ref
 
     def get_reference(self, reference_id: str) -> Reference:
@@ -275,7 +262,6 @@ class NovelProject:
         ref = self.get_reference(reference_id)
         ref.title = title.strip() or ref.title
         self.save_metadata()
-        self.events.emit("reference.updated", reference_id=reference_id)
 
     def delete_reference(self, reference_id: str) -> None:
         ref = self.get_reference(reference_id)
@@ -285,7 +271,6 @@ class NovelProject:
         self.references = [item for item in self.references if item.id != reference_id]
         self.recent_references = [item for item in self.recent_references if item != reference_id]
         self.save_metadata()
-        self.events.emit("reference.deleted", reference_id=reference_id)
 
     def load_reference(self, reference_id: str) -> str:
         ref = self.get_reference(reference_id)
@@ -299,7 +284,6 @@ class NovelProject:
     def save_reference(self, reference_id: str, text: str) -> None:
         ref = self.get_reference(reference_id)
         self.write_text(ref.file, text)
-        self.events.emit("reference.body_saved", reference_id=reference_id)
 
     def recent_reference_items(self) -> list[Reference]:
         mapping = {ref.id: ref for ref in self.references}
@@ -321,7 +305,6 @@ class NovelProject:
         )
         self.plot_items.append(item)
         self.save_metadata()
-        self.events.emit("plot.created", plot_id=item.id)
         return item
 
     def get_plot_item(self, plot_id: str) -> PlotItem:
@@ -344,13 +327,11 @@ class NovelProject:
         item.chapter_id = chapter_id
         item.episode_id = episode_id
         self.save_metadata()
-        self.events.emit("plot.updated", plot_id=plot_id)
 
     def delete_plot_item(self, plot_id: str) -> None:
         self.get_plot_item(plot_id)
         self.plot_items = [item for item in self.plot_items if item.id != plot_id]
         self.save_metadata()
-        self.events.emit("plot.deleted", plot_id=plot_id)
 
     def reorder_plot_items(self, ordered_ids: list[str]) -> None:
         mapping = {item.id: item for item in self.plot_items}
@@ -358,7 +339,6 @@ class NovelProject:
             raise ProjectError("展開の並び替え情報が不正です。")
         self.plot_items = [mapping[item_id] for item_id in ordered_ids]
         self.save_metadata()
-        self.events.emit("plot.reordered")
 
     def create_timeline_item(
         self, point: str, title: str, content: str = ""
@@ -371,7 +351,6 @@ class NovelProject:
         )
         self.timeline_items.append(item)
         self.save_metadata()
-        self.events.emit("timeline.created", timeline_id=item.id)
         return item
 
     def get_timeline_item(self, timeline_id: str) -> TimelineItem:
@@ -388,7 +367,6 @@ class NovelProject:
         item.title = title.strip() or item.title
         item.content = content
         self.save_metadata()
-        self.events.emit("timeline.updated", timeline_id=timeline_id)
 
     def delete_timeline_item(self, timeline_id: str) -> None:
         self.get_timeline_item(timeline_id)
@@ -396,7 +374,6 @@ class NovelProject:
             item for item in self.timeline_items if item.id != timeline_id
         ]
         self.save_metadata()
-        self.events.emit("timeline.deleted", timeline_id=timeline_id)
 
     def reorder_timeline_items(self, ordered_ids: list[str]) -> None:
         mapping = {item.id: item for item in self.timeline_items}
@@ -404,7 +381,6 @@ class NovelProject:
             raise ProjectError("時系列の並び替え情報が不正です。")
         self.timeline_items = [mapping[item_id] for item_id in ordered_ids]
         self.save_metadata()
-        self.events.emit("timeline.reordered")
 
     def search(self, query: str) -> list[SearchResult]:
         needle = query.strip().casefold()
