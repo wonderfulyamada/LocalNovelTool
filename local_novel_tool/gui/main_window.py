@@ -21,6 +21,7 @@ from .editor_tab import TextEditorTab
 from .preview_tab import PreviewTab
 from .project_tree import ProjectTree
 from .reference_tab import ReferenceTab
+from .sample_project import initialize_sample_project
 from .search_tab import SearchTab
 
 
@@ -59,7 +60,7 @@ class MainWindow(QMainWindow):
         self._build_menu()
         self._connect()
         self.statusBar().showMessage("作品を新規作成するか開いてください。")
-        self._try_open_last_project()
+        self._try_open_initial_project()
 
     def _build_toolbar(self) -> None:
         toolbar = QToolBar("メイン")
@@ -116,6 +117,22 @@ class MainWindow(QMainWindow):
                 self._load_project(Path(last))
             except Exception:
                 pass
+
+    def _try_open_initial_project(self) -> None:
+        documents = Path(
+            QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation)
+        )
+        try:
+            sample = initialize_sample_project(
+                self.api, self.settings, documents / "LocalNovelTool"
+            )
+        except Exception as exc:
+            QMessageBox.warning(self, "サンプル作成失敗", str(exc))
+        else:
+            if sample is not None:
+                self._after_project_loaded()
+                return
+        self._try_open_last_project()
 
     def _flush_editors(self) -> None:
         self.editor_tab.flush()
