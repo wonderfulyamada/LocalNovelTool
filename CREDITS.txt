@@ -1,0 +1,8 @@
+Local Novel Tool v0.1.0
+Copyright (c) 2026 Wonderful Yamada
+
+Built with:
+- Python
+- Qt for Python / PySide6
+
+正式配布時は THIRD_PARTY_LICENSES.txt と各ライセンス本文を確認・同梱してください。

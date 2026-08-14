@@ -1,0 +1,332 @@
+from __future__ import annotations
+
+import json
+import shutil
+import uuid
+from pathlib import Path
+from typing import Any
+
+from .events import EventBus
+from .models import Chapter, Episode, Reference, SearchResult
+
+PROJECT_FILE = "project.json"
+FORMAT_VERSION = 1
+REFERENCE_CATEGORIES = ("キャラ", "世界観", "展開", "その他")
+PROJECT_FOLDERS = ("manuscript", "episode_notes", "references", "backups")
+INVALID_PROJECT_NAME_CHARS = frozenset('<>:"/\\|?*')
+WINDOWS_RESERVED_NAMES = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{number}" for number in range(1, 10)),
+    *(f"LPT{number}" for number in range(1, 10)),
+}
+
+
+class ProjectError(RuntimeError):
+    pass
+
+
+class NovelProject:
+    def __init__(self, root: Path, data: dict[str, Any]) -> None:
+        self.root = root.resolve()
+        self.title = str(data.get("title", self.root.name))
+        self.chapters = [Chapter.from_dict(item) for item in data.get("chapters", [])]
+        self.references = [Reference.from_dict(item) for item in data.get("references", [])]
+        self.recent_references: list[str] = list(data.get("recent_references", []))
+        self.events = EventBus()
+
+    @classmethod
+    def create(cls, parent: Path, title: str) -> "NovelProject":
+        """Create a new project in a new ``parent / title`` directory."""
+        title = title.strip()
+        cls._validate_project_name(title)
+        parent = parent.resolve()
+        if not parent.is_dir():
+            raise ProjectError("保存先の親フォルダが見つかりません。")
+
+        root = parent / title
+        try:
+            # exist_ok=False makes this the overwrite guard, including races between
+            # checking the name in the GUI and actually creating the directory.
+            root.mkdir(exist_ok=False)
+        except FileExistsError as exc:
+            raise ProjectError(f"同名のフォルダが既に存在します: {title}") from exc
+        except OSError as exc:
+            raise ProjectError(f"作品フォルダを作成できませんでした: {exc}") from exc
+
+        try:
+            for folder in PROJECT_FOLDERS:
+                (root / folder).mkdir()
+            project = cls(root, {"title": title, "chapters": [], "references": []})
+            project.save_metadata()
+            return project
+        except Exception:
+            # The directory was created by this method and was never pre-existing.
+            # Remove a partial project so the user can safely retry.
+            shutil.rmtree(root, ignore_errors=True)
+            raise
+
+    @staticmethod
+    def _validate_project_name(title: str) -> None:
+        if not title:
+            raise ProjectError("作品名を入力してください。")
+        if title in {".", ".."} or any(char in INVALID_PROJECT_NAME_CHARS for char in title):
+            raise ProjectError("作品名にフォルダ名として使用できない文字が含まれています。")
+        if title.endswith((" ", ".")):
+            raise ProjectError("作品名の末尾に空白またはピリオドは使用できません。")
+        if title.split(".", 1)[0].upper() in WINDOWS_RESERVED_NAMES:
+            raise ProjectError("この作品名はフォルダ名として使用できません。")
+
+    @classmethod
+    def open(cls, root: Path) -> "NovelProject":
+        root = root.resolve()
+        project_path = root / PROJECT_FILE
+        if not project_path.exists():
+            raise ProjectError("project.json が見つかりません。")
+        with project_path.open("r", encoding="utf-8") as fp:
+            data = json.load(fp)
+        if int(data.get("format_version", FORMAT_VERSION)) > FORMAT_VERSION:
+            raise ProjectError("この作品データは新しい形式です。")
+        for folder in PROJECT_FOLDERS:
+            (root / folder).mkdir(exist_ok=True)
+        return cls(root, data)
+
+    def _metadata(self) -> dict[str, Any]:
+        return {
+            "format_version": FORMAT_VERSION,
+            "title": self.title,
+            "chapters": [chapter.to_dict() for chapter in self.chapters],
+            "references": [ref.to_dict() for ref in self.references],
+            "recent_references": self.recent_references[:20],
+        }
+
+    def save_metadata(self) -> None:
+        tmp = self.root / f"{PROJECT_FILE}.tmp"
+        with tmp.open("w", encoding="utf-8", newline="\n") as fp:
+            json.dump(self._metadata(), fp, ensure_ascii=False, indent=2)
+        tmp.replace(self.root / PROJECT_FILE)
+        self.events.emit("project.saved")
+
+    @staticmethod
+    def _new_id(prefix: str) -> str:
+        return f"{prefix}_{uuid.uuid4().hex[:12]}"
+
+    def get_chapter(self, chapter_id: str) -> Chapter:
+        for chapter in self.chapters:
+            if chapter.id == chapter_id:
+                return chapter
+        raise ProjectError("章が見つかりません。")
+
+    def get_episode(self, episode_id: str) -> Episode:
+        for chapter in self.chapters:
+            for episode in chapter.episodes:
+                if episode.id == episode_id:
+                    return episode
+        raise ProjectError("話が見つかりません。")
+
+    def find_episode_parent(self, episode_id: str) -> Chapter:
+        for chapter in self.chapters:
+            if any(ep.id == episode_id for ep in chapter.episodes):
+                return chapter
+        raise ProjectError("話が見つかりません。")
+
+    def create_chapter(self, title: str) -> Chapter:
+        chapter = Chapter(id=self._new_id("ch"), title=title.strip() or "新しい章", episodes=[])
+        self.chapters.append(chapter)
+        self.save_metadata()
+        self.events.emit("chapter.created", chapter_id=chapter.id)
+        return chapter
+
+    def rename_chapter(self, chapter_id: str, title: str) -> None:
+        chapter = self.get_chapter(chapter_id)
+        chapter.title = title.strip() or chapter.title
+        self.save_metadata()
+        self.events.emit("chapter.updated", chapter_id=chapter_id)
+
+    def delete_chapter(self, chapter_id: str) -> None:
+        chapter = self.get_chapter(chapter_id)
+        for episode in list(chapter.episodes):
+            self._delete_episode_files(episode)
+        self.chapters = [item for item in self.chapters if item.id != chapter_id]
+        self.save_metadata()
+        self.events.emit("chapter.deleted", chapter_id=chapter_id)
+
+    def create_episode(self, chapter_id: str, title: str) -> Episode:
+        chapter = self.get_chapter(chapter_id)
+        episode_id = self._new_id("ep")
+        episode = Episode(
+            id=episode_id,
+            title=title.strip() or "新しい話",
+            body_file=f"manuscript/{episode_id}.txt",
+            note_file=f"episode_notes/{episode_id}.txt",
+        )
+        chapter.episodes.append(episode)
+        self.write_text(episode.body_file, "")
+        self.write_text(episode.note_file, "")
+        self.save_metadata()
+        self.events.emit("episode.created", episode_id=episode.id)
+        return episode
+
+    def rename_episode(self, episode_id: str, title: str) -> None:
+        episode = self.get_episode(episode_id)
+        episode.title = title.strip() or episode.title
+        self.save_metadata()
+        self.events.emit("episode.updated", episode_id=episode_id)
+
+    def _delete_episode_files(self, episode: Episode) -> None:
+        for relative in (episode.body_file, episode.note_file):
+            path = self.root / relative
+            if path.exists():
+                path.unlink()
+
+    def delete_episode(self, episode_id: str) -> None:
+        chapter = self.find_episode_parent(episode_id)
+        episode = self.get_episode(episode_id)
+        self._delete_episode_files(episode)
+        chapter.episodes = [item for item in chapter.episodes if item.id != episode_id]
+        self.save_metadata()
+        self.events.emit("episode.deleted", episode_id=episode_id)
+
+    def reorder_structure(self, ordered: list[tuple[str, list[str]]]) -> None:
+        chapter_map = {chapter.id: chapter for chapter in self.chapters}
+        episode_map = {
+            episode.id: episode
+            for chapter in self.chapters
+            for episode in chapter.episodes
+        }
+        chapter_ids = [chapter_id for chapter_id, _ in ordered]
+        if set(chapter_ids) != set(chapter_map):
+            raise ProjectError("章の並び替え情報が不正です。")
+        episode_ids = [episode_id for _, ids in ordered for episode_id in ids]
+        if len(episode_ids) != len(set(episode_ids)) or set(episode_ids) != set(episode_map):
+            raise ProjectError("話の並び替え情報が不正です。")
+
+        new_chapters: list[Chapter] = []
+        for chapter_id, ids in ordered:
+            chapter = chapter_map[chapter_id]
+            chapter.episodes = [episode_map[episode_id] for episode_id in ids]
+            new_chapters.append(chapter)
+        self.chapters = new_chapters
+        self.save_metadata()
+        self.events.emit("structure.reordered")
+
+    def read_text(self, relative_path: str) -> str:
+        path = self.root / relative_path
+        if not path.exists():
+            return ""
+        return path.read_text(encoding="utf-8")
+
+    def write_text(self, relative_path: str, text: str) -> None:
+        path = self.root / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(text, encoding="utf-8", newline="\n")
+        tmp.replace(path)
+
+    def load_episode_body(self, episode_id: str) -> str:
+        return self.read_text(self.get_episode(episode_id).body_file)
+
+    def save_episode_body(self, episode_id: str, text: str) -> None:
+        episode = self.get_episode(episode_id)
+        self.write_text(episode.body_file, text)
+        self.events.emit("episode.body_saved", episode_id=episode_id)
+
+    def load_episode_note(self, episode_id: str) -> str:
+        return self.read_text(self.get_episode(episode_id).note_file)
+
+    def save_episode_note(self, episode_id: str, text: str) -> None:
+        episode = self.get_episode(episode_id)
+        self.write_text(episode.note_file, text)
+        self.events.emit("episode.note_saved", episode_id=episode_id)
+
+    def create_reference(self, category: str, title: str) -> Reference:
+        if category not in REFERENCE_CATEGORIES:
+            raise ProjectError("不明な資料カテゴリです。")
+        ref_id = self._new_id("ref")
+        ref = Reference(
+            id=ref_id,
+            category=category,
+            title=title.strip() or "新しい資料",
+            file=f"references/{ref_id}.txt",
+        )
+        self.references.append(ref)
+        self.write_text(ref.file, "")
+        self.save_metadata()
+        self.events.emit("reference.created", reference_id=ref.id)
+        return ref
+
+    def get_reference(self, reference_id: str) -> Reference:
+        for ref in self.references:
+            if ref.id == reference_id:
+                return ref
+        raise ProjectError("資料が見つかりません。")
+
+    def rename_reference(self, reference_id: str, title: str) -> None:
+        ref = self.get_reference(reference_id)
+        ref.title = title.strip() or ref.title
+        self.save_metadata()
+        self.events.emit("reference.updated", reference_id=reference_id)
+
+    def delete_reference(self, reference_id: str) -> None:
+        ref = self.get_reference(reference_id)
+        path = self.root / ref.file
+        if path.exists():
+            path.unlink()
+        self.references = [item for item in self.references if item.id != reference_id]
+        self.recent_references = [item for item in self.recent_references if item != reference_id]
+        self.save_metadata()
+        self.events.emit("reference.deleted", reference_id=reference_id)
+
+    def load_reference(self, reference_id: str) -> str:
+        ref = self.get_reference(reference_id)
+        if reference_id in self.recent_references:
+            self.recent_references.remove(reference_id)
+        self.recent_references.insert(0, reference_id)
+        self.recent_references = self.recent_references[:20]
+        self.save_metadata()
+        return self.read_text(ref.file)
+
+    def save_reference(self, reference_id: str, text: str) -> None:
+        ref = self.get_reference(reference_id)
+        self.write_text(ref.file, text)
+        self.events.emit("reference.body_saved", reference_id=reference_id)
+
+    def recent_reference_items(self) -> list[Reference]:
+        mapping = {ref.id: ref for ref in self.references}
+        return [mapping[item] for item in self.recent_references if item in mapping]
+
+    def search(self, query: str) -> list[SearchResult]:
+        needle = query.strip().casefold()
+        if not needle:
+            return []
+        results: list[SearchResult] = []
+
+        def scan(kind: str, source_id: str, title: str, category: str, text: str) -> None:
+            for line_no, line in enumerate(text.splitlines(), start=1):
+                if needle in line.casefold():
+                    results.append(
+                        SearchResult(
+                            kind=kind,
+                            source_id=source_id,
+                            title=title,
+                            category=category,
+                            line=line_no,
+                            excerpt=line.strip()[:240],
+                        )
+                    )
+
+        for chapter in self.chapters:
+            for episode in chapter.episodes:
+                scan("episode", episode.id, episode.title, chapter.title, self.load_episode_body(episode.id))
+                scan("episode_note", episode.id, f"{episode.title} / 話メモ", chapter.title, self.load_episode_note(episode.id))
+        for ref in self.references:
+            scan("reference", ref.id, ref.title, ref.category, self.read_text(ref.file))
+        return results
+
+    def backup(self) -> Path:
+        backup_dir = self.root / "backups"
+        backup_dir.mkdir(exist_ok=True)
+        backup_path = backup_dir / "latest"
+        if backup_path.exists():
+            shutil.rmtree(backup_path)
+        shutil.copytree(self.root, backup_path, ignore=shutil.ignore_patterns("backups"))
+        return backup_path
