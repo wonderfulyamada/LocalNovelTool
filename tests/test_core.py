@@ -52,7 +52,9 @@ def test_create_project_refuses_existing_same_name_folder(tmp_path: Path) -> Non
     assert not (existing / "project.json").exists()
 
 
-@pytest.mark.parametrize("title", ["", "../作品", "作品/別名", "作品\\別名", "CON"])
+@pytest.mark.parametrize(
+    "title", ["", "../作品", "作品/別名", "作品\\別名", "CON", "作品\x01名"]
+)
 def test_create_project_rejects_invalid_folder_names(tmp_path: Path, title: str) -> None:
     with pytest.raises(ProjectError):
         CoreAPI().create_project(tmp_path, title)

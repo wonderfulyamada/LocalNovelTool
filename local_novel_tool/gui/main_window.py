@@ -171,6 +171,10 @@ class MainWindow(QMainWindow):
             raise RuntimeError("ドキュメントフォルダが見つかりません。")
         return Path(documents) / "LocalNovelTool"
 
+    @classmethod
+    def _projects_parent(cls) -> Path:
+        return cls._tutorial_parent() / "作品"
+
     def recreate_tutorial(self) -> None:
         answer = QMessageBox.question(
             self,
@@ -202,11 +206,10 @@ class MainWindow(QMainWindow):
         title, ok = QInputDialog.getText(self, "新規作品", "作品名")
         if not ok or not title.strip():
             return
-        folder = QFileDialog.getExistingDirectory(self, "保存先の親フォルダを選択")
-        if not folder:
-            return
         try:
-            self.api.create_project(Path(folder), title.strip())
+            projects_parent = self._projects_parent()
+            projects_parent.mkdir(parents=True, exist_ok=True)
+            self.api.create_project(projects_parent, title.strip())
             self._after_project_loaded()
         except ProjectError as exc:
             QMessageBox.warning(self, "作成できません", str(exc))
