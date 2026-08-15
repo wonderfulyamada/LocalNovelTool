@@ -69,6 +69,7 @@ Windows 10 / 11 x64向けです。詳細なビルド手順は [BUILD_WINDOWS.md]
 
 ## ライセンス
 
-- [LICENSE.txt](LICENSE.txt)
-- [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt)
-- [CREDITS.txt](CREDITS.txt)
+LocalNovelTool本体は [MIT License](LICENSE.txt) で提供します。
+Python、PySide6、Qtその他の第三者コンポーネントは、それぞれのライセンスに従います。
+詳細は [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt)、[licenses](licenses)、
+[CREDITS.txt](CREDITS.txt) を参照してください。
