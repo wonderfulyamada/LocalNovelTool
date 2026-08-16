@@ -22,8 +22,15 @@ class CoreAPI:
         self.project = NovelProject.create(parent, title)
         return self.project
 
-    def open_project(self, root: Path) -> NovelProject:
-        self.project = NovelProject.open(root)
+    def open_project(
+        self, root: Path, *, migration_backups_root: Path | None = None
+    ) -> NovelProject:
+        backup = (
+            (lambda: create_project_backup(root, migration_backups_root))
+            if migration_backups_root is not None
+            else None
+        )
+        self.project = NovelProject.open(root, backup_before_migration=backup)
         return self.project
 
     def create_backup(self, backups_root: Path) -> Path:

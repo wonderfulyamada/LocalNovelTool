@@ -3,13 +3,15 @@ from __future__ import annotations
 import json
 import shutil
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from .models import Chapter, Episode, PlotItem, Reference, SearchResult, TimelineItem
+from .migration import CURRENT_FORMAT_VERSION, FormatVersionError, migrate_project_data
 
 PROJECT_FILE = "project.json"
-FORMAT_VERSION = 1
+FORMAT_VERSION = CURRENT_FORMAT_VERSION
 REFERENCE_CATEGORIES = ("登場人物", "アイテム", "世界観", "その他")
 LEGACY_REFERENCE_CATEGORIES = {"キャラ": "登場人物", "展開": "その他"}
 PROJECT_FOLDERS = ("manuscript", "episode_notes", "references", "backups")
@@ -86,15 +88,24 @@ class NovelProject:
             raise ProjectError("この作品名はフォルダ名として使用できません。")
 
     @classmethod
-    def open(cls, root: Path) -> "NovelProject":
+    def open(
+        cls,
+        root: Path,
+        *,
+        backup_before_migration: Callable[[], object] | None = None,
+    ) -> "NovelProject":
         root = root.resolve()
         project_path = root / PROJECT_FILE
         if not project_path.exists():
             raise ProjectError("project.json が見つかりません。")
         with project_path.open("r", encoding="utf-8") as fp:
             data = json.load(fp)
-        if int(data.get("format_version", FORMAT_VERSION)) > FORMAT_VERSION:
-            raise ProjectError("この作品データは新しい形式です。")
+        try:
+            data = migrate_project_data(
+                data, backup_before_migration=backup_before_migration
+            )
+        except FormatVersionError as exc:
+            raise ProjectError(str(exc)) from exc
         for folder in PROJECT_FOLDERS:
             (root / folder).mkdir(exist_ok=True)
         return cls(root, data)
