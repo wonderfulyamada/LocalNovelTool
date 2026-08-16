@@ -621,6 +621,7 @@ def test_manual_save_writes_body_and_keeps_autosave_active(
     assert window.editor_tab.timer.isActive()
     window.editor_tab.timer.timeout.emit()
     assert project.read_text(episode.body_file) == "手動保存本文・自動保存も有効"
+    window.session_modified = False
     window.close()
     app.processEvents()
 
@@ -660,5 +661,148 @@ def test_failed_manual_save_preserves_existing_body(tmp_path: Path, monkeypatch)
 
     assert project.read_text(episode.body_file) == "保存済み本文"
     assert errors == ["書き込み失敗"]
+    window.session_modified = False
+    window.close()
+    app.processEvents()
+
+
+class FakeCloseEvent:
+    def __init__(self) -> None:
+        self.accepted = False
+        self.ignored = False
+
+    def accept(self) -> None:
+        self.accepted = True
+
+    def ignore(self) -> None:
+        self.ignored = True
+
+
+def test_session_modified_survives_auto_and_manual_save_and_resets_on_open(
+    tmp_path: Path, monkeypatch
+) -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class FakeWebView(QWidget):
+        def setHtml(self, _rendered: str) -> None:  # noqa: N802
+            pass
+
+    monkeypatch.setattr(preview_module, "QWebEngineView", FakeWebView)
+    monkeypatch.setattr(
+        main_window_module.MainWindow, "_try_open_initial_project", lambda self: None
+    )
+    window = main_window_module.MainWindow()
+    project = window.api.create_project(tmp_path, "終了確認作品")
+    chapter = window.api.create_chapter("第一章")
+    episode = window.api.create_episode(chapter.id, "第一話")
+    window._after_project_loaded()
+    window.open_episode(episode.id)
+
+    assert not window.session_modified
+    unopened_event = FakeCloseEvent()
+    monkeypatch.setattr(
+        window,
+        "_confirm_save_on_close",
+        lambda: (_ for _ in ()).throw(AssertionError("確認が表示されました")),
+    )
+    window.closeEvent(unopened_event)
+    assert unopened_event.accepted
+
+    window.editor_tab.editor.setPlainText("本文変更")
+    assert window.session_modified
+    window.editor_tab.timer.timeout.emit()
+    assert project.read_text(episode.body_file) == "本文変更"
+    assert window.session_modified
+    assert window.manual_save()
+    assert window.session_modified
+
+    window.session_modified = False
+    window.note_tab.editor.setPlainText("話メモ変更")
+    assert window.session_modified
+
+    window.session_modified = False
+    monkeypatch.setattr(
+        main_window_module.QInputDialog,
+        "getText",
+        lambda *_args, **_kwargs: ("追加章", True),
+    )
+    window.add_chapter()
+    assert window.session_modified
+
+    other_parent = tmp_path / "other"
+    other_parent.mkdir()
+    other = CoreAPI().create_project(other_parent, "別作品")
+    window._load_project(other.root)
+    assert not window.session_modified
+    window.session_modified = False
+    window.close()
+    app.processEvents()
+
+
+def test_close_save_writes_official_project_and_accepts(
+    tmp_path: Path, monkeypatch
+) -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class FakeWebView(QWidget):
+        def setHtml(self, _rendered: str) -> None:  # noqa: N802
+            pass
+
+    monkeypatch.setattr(preview_module, "QWebEngineView", FakeWebView)
+    monkeypatch.setattr(
+        main_window_module.MainWindow, "_try_open_initial_project", lambda self: None
+    )
+    window = main_window_module.MainWindow()
+    project = window.api.create_project(tmp_path, "終了保存作品")
+    chapter = window.api.create_chapter("第一章")
+    episode = window.api.create_episode(chapter.id, "第一話")
+    window._after_project_loaded()
+    window.open_episode(episode.id)
+    window.editor_tab.editor.setPlainText("終了時に保存")
+    monkeypatch.setattr(window, "_confirm_save_on_close", lambda: True)
+    event = FakeCloseEvent()
+
+    window.closeEvent(event)
+
+    assert event.accepted and not event.ignored
+    assert project.read_text(episode.body_file) == "終了時に保存"
+    window.session_modified = False
+    window.close()
+    app.processEvents()
+
+
+def test_close_cancel_and_save_failure_keep_window_open(
+    tmp_path: Path, monkeypatch
+) -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class FakeWebView(QWidget):
+        def setHtml(self, _rendered: str) -> None:  # noqa: N802
+            pass
+
+    monkeypatch.setattr(preview_module, "QWebEngineView", FakeWebView)
+    monkeypatch.setattr(
+        main_window_module.MainWindow, "_try_open_initial_project", lambda self: None
+    )
+    window = main_window_module.MainWindow()
+    window.api.create_project(tmp_path, "終了中止作品")
+    window._after_project_loaded()
+    window.session_modified = True
+
+    save_calls = []
+    monkeypatch.setattr(window, "manual_save", lambda: save_calls.append(True) or True)
+    monkeypatch.setattr(window, "_confirm_save_on_close", lambda: False)
+    cancelled = FakeCloseEvent()
+    window.closeEvent(cancelled)
+    assert cancelled.ignored and not cancelled.accepted
+    assert save_calls == []
+
+    monkeypatch.setattr(window, "_confirm_save_on_close", lambda: True)
+    monkeypatch.setattr(window, "manual_save", lambda: False)
+    failed = FakeCloseEvent()
+    window.closeEvent(failed)
+    assert failed.ignored and not failed.accepted
+
+    window.session_modified = False
     window.close()
     app.processEvents()
