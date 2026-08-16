@@ -13,6 +13,12 @@
 ZIPを展開し、`LocalNovelTool.exe` を起動するだけで使用できます。
 Pythonのインストールは不要です。
 
+### Free版の更新
+
+LocalNovelToolを終了し、新しいバージョンのファイルを既存の
+`LocalNovelTool`フォルダへ上書きしてください。作品データはアプリ本体とは
+別の場所に保存されます。
+
 ## Screenshot
 
 ![LocalNovelTool](docs/screenshot.png)
@@ -51,7 +57,8 @@ Pythonのインストールは不要です。
 ## データ保存について
 
 - 作品データは完全にローカルへ保存します。
-- 新規作品は `Documents\LocalNovelTool\作品\<作品名>` に保存します。
+- 新規作品は、設定中の「作品の保存フォルダ」へ保存します（初期値は
+  `Documents\LocalNovelTool\作品\<作品名>`）。
 - 以前のバージョンで任意の場所に作成した作品も「開く」から利用できます。
 - 本文はUTF-8テキストで保持します。
 - 作品構造はJSONで保持します。

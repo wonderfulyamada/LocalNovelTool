@@ -4,7 +4,8 @@ $projectRoot = $PSScriptRoot
 $deployCommand = Join-Path $projectRoot ".venv\Scripts\pyside6-deploy.exe"
 $configFile = Join-Path $projectRoot "pysidedeploy.spec"
 $builtApp = Join-Path $projectRoot "build\LocalNovelTool.dist"
-$distribution = Join-Path $projectRoot "dist\LocalNovelTool_v0.2.1"
+$distribution = Join-Path $projectRoot "dist\LocalNovelTool"
+$zipPath = Join-Path $projectRoot "dist\LocalNovelTool_v0.2.1.zip"
 
 if (-not (Test-Path -LiteralPath $deployCommand -PathType Leaf)) {
     throw "pyside6-deploy was not found. Install requirements-dev.txt first."
@@ -51,7 +52,6 @@ New-Item -ItemType Directory -Path $distributionResources -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $projectRoot "resources\tutorial") -Destination $distributionResources -Recurse
 Copy-Item -LiteralPath (Join-Path $projectRoot "build_assets\app.ico") -Destination (Join-Path $distributionResources "app.ico")
 
-$zipPath = "$distribution.zip"
 if (Test-Path -LiteralPath $zipPath) {
     Remove-Item -LiteralPath $zipPath -Force
 }
