@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, QStandardPaths, Qt, QUrl
-from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices
+from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -204,6 +204,7 @@ class MainWindow(QMainWindow):
         actions = [
             ("新規作品", self.new_project),
             ("開く", self.open_project),
+            ("保存", self.manual_save),
             ("章追加", self.add_chapter),
             ("話追加", self.add_episode),
             ("名前変更", self.rename_selected),
@@ -216,6 +217,12 @@ class MainWindow(QMainWindow):
 
     def _build_menu(self) -> None:
         file_menu = self.menuBar().addMenu("ファイル")
+        save_action = QAction("保存", self)
+        save_action.setShortcut(QKeySequence.StandardKey.Save)
+        save_action.triggered.connect(self.manual_save)
+        file_menu.addAction(save_action)
+        self.save_action = save_action
+        file_menu.addSeparator()
         self.open_folder_action = QAction("作品フォルダを開く", self)
         self.open_folder_action.setEnabled(False)
         self.open_folder_action.triggered.connect(self.open_project_folder)
@@ -389,6 +396,43 @@ class MainWindow(QMainWindow):
         self.reference_tab.flush()
         self.plot_tab.flush()
         self.timeline_tab.flush()
+
+    def manual_save(self) -> None:
+        if not self.api.project:
+            return
+        try:
+            if self.current_episode_id:
+                self.save_current_body(self.editor_tab.editor.toPlainText())
+                self.save_current_note(self.note_tab.editor.toPlainText())
+            if self.reference_tab.current_id:
+                self.save_reference(
+                    self.reference_tab.current_id,
+                    self.reference_tab.editor.toPlainText(),
+                )
+            if self.plot_tab.current_id:
+                self.save_plot_item(
+                    self.plot_tab.current_id,
+                    self.plot_tab.title.text(),
+                    self.plot_tab.content.toPlainText(),
+                    self.plot_tab.chapter.currentData(),
+                    self.plot_tab.episode.currentData(),
+                )
+            if self.timeline_tab.current_id:
+                self.save_timeline_item(
+                    self.timeline_tab.current_id,
+                    self.timeline_tab.point.text(),
+                    self.timeline_tab.title.text(),
+                    self.timeline_tab.content.toPlainText(),
+                )
+        except Exception as exc:
+            QMessageBox.critical(self, "保存失敗", str(exc))
+            return
+        self.editor_tab.mark_saved()
+        self.note_tab.mark_saved()
+        self.reference_tab.timer.stop()
+        self.plot_tab.timer.stop()
+        self.timeline_tab.timer.stop()
+        self.statusBar().showMessage("保存しました")
 
     def new_project(self) -> None:
         self._flush_editors()

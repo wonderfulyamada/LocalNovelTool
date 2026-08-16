@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from PySide6.QtCore import QModelIndex, QSettings
+from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import QApplication, QDialog, QWidget
 
 import local_novel_tool.gui.main_window as main_window_module
@@ -496,4 +497,82 @@ def test_planning_lists_emit_dragged_order() -> None:
     timeline_tab.set_items([first, second])
     assert timeline_tab.list.model().moveRow(QModelIndex(), 0, QModelIndex(), 2)
     assert timeline_orders[-1] == ["second", "first"]
+    app.processEvents()
+
+
+def test_manual_save_writes_body_and_keeps_autosave_active(
+    tmp_path: Path, monkeypatch
+) -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class FakeWebView(QWidget):
+        def setHtml(self, _rendered: str) -> None:  # noqa: N802
+            pass
+
+    monkeypatch.setattr(preview_module, "QWebEngineView", FakeWebView)
+    monkeypatch.setattr(
+        main_window_module.MainWindow, "_try_open_initial_project", lambda self: None
+    )
+    window = main_window_module.MainWindow()
+    project = window.api.create_project(tmp_path, "保存テスト")
+    chapter = window.api.create_chapter("第一章")
+    episode = window.api.create_episode(chapter.id, "第一話")
+    window._after_project_loaded()
+    window.open_episode(episode.id)
+
+    window.editor_tab.editor.setPlainText("手動保存本文")
+    assert window.editor_tab.timer.isActive()
+    window.manual_save()
+
+    assert project.read_text(episode.body_file) == "手動保存本文"
+    assert window.statusBar().currentMessage() == "保存しました"
+    assert window.save_action.shortcut().matches(
+        QKeySequence("Ctrl+S")
+    ) == QKeySequence.SequenceMatch.ExactMatch
+    assert not window.editor_tab.timer.isActive()
+
+    window.editor_tab.editor.setPlainText("手動保存本文・自動保存も有効")
+    assert window.editor_tab.timer.isActive()
+    window.editor_tab.timer.timeout.emit()
+    assert project.read_text(episode.body_file) == "手動保存本文・自動保存も有効"
+    window.close()
+    app.processEvents()
+
+
+def test_failed_manual_save_preserves_existing_body(tmp_path: Path, monkeypatch) -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class FakeWebView(QWidget):
+        def setHtml(self, _rendered: str) -> None:  # noqa: N802
+            pass
+
+    monkeypatch.setattr(preview_module, "QWebEngineView", FakeWebView)
+    monkeypatch.setattr(
+        main_window_module.MainWindow, "_try_open_initial_project", lambda self: None
+    )
+    window = main_window_module.MainWindow()
+    project = window.api.create_project(tmp_path, "保存失敗テスト")
+    chapter = window.api.create_chapter("第一章")
+    episode = window.api.create_episode(chapter.id, "第一話")
+    project.write_text(episode.body_file, "保存済み本文")
+    window._after_project_loaded()
+    window.open_episode(episode.id)
+    window.editor_tab.editor.setPlainText("失敗する本文")
+    monkeypatch.setattr(
+        window.api,
+        "save_episode_body",
+        lambda *_args: (_ for _ in ()).throw(OSError("書き込み失敗")),
+    )
+    errors = []
+    monkeypatch.setattr(
+        main_window_module.QMessageBox,
+        "critical",
+        lambda *_args: errors.append(_args[2]),
+    )
+
+    window.manual_save()
+
+    assert project.read_text(episode.body_file) == "保存済み本文"
+    assert errors == ["書き込み失敗"]
+    window.close()
     app.processEvents()
