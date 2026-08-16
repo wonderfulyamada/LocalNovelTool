@@ -306,11 +306,6 @@ def test_open_project_starts_in_projects_folder(tmp_path: Path, monkeypatch) -> 
         main_window_module.MainWindow, "_try_open_initial_project", lambda self: None
     )
     projects_parent = tmp_path / "Documents" / "LocalNovelTool" / "作品"
-    monkeypatch.setattr(
-        main_window_module.MainWindow,
-        "_projects_parent",
-        classmethod(lambda cls: projects_parent),
-    )
     calls = []
     monkeypatch.setattr(
         main_window_module.QFileDialog,
@@ -319,9 +314,104 @@ def test_open_project_starts_in_projects_folder(tmp_path: Path, monkeypatch) -> 
     )
 
     window = main_window_module.MainWindow()
+    window.settings = QSettings(
+        str(tmp_path / "settings-open.ini"), QSettings.Format.IniFormat
+    )
+    window._set_projects_parent(projects_parent)
     window.open_project()
 
     assert calls[0][2] == str(projects_parent)
+    window.close()
+    app.processEvents()
+
+
+def test_projects_root_defaults_persists_and_resets(tmp_path: Path, monkeypatch) -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class FakeWebView(QWidget):
+        def setHtml(self, _rendered: str) -> None:  # noqa: N802
+            pass
+
+    monkeypatch.setattr(preview_module, "QWebEngineView", FakeWebView)
+    monkeypatch.setattr(
+        main_window_module.MainWindow, "_try_open_initial_project", lambda self: None
+    )
+    tutorial_parent = tmp_path / "Documents" / "LocalNovelTool"
+    monkeypatch.setattr(
+        main_window_module.MainWindow,
+        "_tutorial_parent",
+        staticmethod(lambda: tutorial_parent),
+    )
+    settings_path = tmp_path / "settings-projects-root.ini"
+    window = main_window_module.MainWindow()
+    window.settings = QSettings(str(settings_path), QSettings.Format.IniFormat)
+
+    default_root = tutorial_parent / "作品"
+    assert window._projects_parent() == default_root
+
+    custom_root = tmp_path / "NovelProjects"
+    custom_root.mkdir()
+    window._set_projects_parent(custom_root)
+    reloaded = QSettings(str(settings_path), QSettings.Format.IniFormat)
+    assert reloaded.value(main_window_module.PROJECTS_ROOT_KEY, "", str) == str(
+        custom_root
+    )
+    window.settings = reloaded
+    assert window._projects_parent() == custom_root
+
+    dialog = main_window_module.SettingsDialog(custom_root, default_root)
+    dialog.reset_projects_root()
+    assert dialog.selected_root() == default_root
+    dialog.close()
+    window.close()
+    app.processEvents()
+
+
+def test_new_project_uses_configured_root_without_moving_existing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class FakeWebView(QWidget):
+        def setHtml(self, _rendered: str) -> None:  # noqa: N802
+            pass
+
+    monkeypatch.setattr(preview_module, "QWebEngineView", FakeWebView)
+    monkeypatch.setattr(
+        main_window_module.MainWindow, "_try_open_initial_project", lambda self: None
+    )
+    old_root = tmp_path / "old" / "既存作品"
+    old_root.parent.mkdir()
+    CoreAPI().create_project(old_root.parent, old_root.name)
+    custom_root = tmp_path / "new-root"
+    custom_root.mkdir()
+
+    captured = []
+
+    class FakeNewProjectDialog:
+        def __init__(self, projects_parent, _parent) -> None:
+            captured.append(projects_parent)
+
+        def exec(self) -> QDialog.DialogCode:
+            return QDialog.DialogCode.Accepted
+
+        def project_title(self) -> str:
+            return "新規作品"
+
+    monkeypatch.setattr(main_window_module, "NewProjectDialog", FakeNewProjectDialog)
+    window = main_window_module.MainWindow()
+    window.settings = QSettings(
+        str(tmp_path / "settings-custom.ini"), QSettings.Format.IniFormat
+    )
+    window._set_projects_parent(custom_root)
+
+    window.new_project()
+
+    assert captured == [custom_root]
+    assert window.api.project is not None
+    assert window.api.project.root == (custom_root / "新規作品").resolve()
+    assert (old_root / "project.json").is_file()
+    assert not (custom_root / "既存作品").exists()
     window.close()
     app.processEvents()
 
