@@ -767,9 +767,7 @@ def test_configured_root_new_project_saves_and_reopens_body(
     window.add_chapter()
     assert [chapter.title for chapter in project.chapters] == ["自由な章名"]
     chapter = project.chapters[0]
-    monkeypatch.setattr(
-        window.tree, "selected_identity", lambda: ("chapter", chapter.id)
-    )
+    window.tree.setCurrentItem(window.tree.topLevelItem(0))
     window.add_episode()
     assert [item.title for item in chapter.episodes] == ["自由な話名"]
     episode = chapter.episodes[0]
@@ -867,6 +865,87 @@ def test_planning_lists_emit_dragged_order() -> None:
     timeline_tab.set_items([first, second])
     assert timeline_tab.list.model().moveRow(QModelIndex(), 0, QModelIndex(), 2)
     assert timeline_orders[-1] == ["second", "first"]
+    app.processEvents()
+
+
+def test_project_actions_follow_project_and_tree_selection(
+    tmp_path: Path, monkeypatch
+) -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class FakeWebView(QWidget):
+        def setHtml(self, _rendered: str) -> None:  # noqa: N802
+            pass
+
+    monkeypatch.setattr(preview_module, "QWebEngineView", FakeWebView)
+    monkeypatch.setattr(
+        main_window_module.MainWindow, "_try_open_initial_project", lambda self: None
+    )
+    window = main_window_module.MainWindow()
+
+    assert window.new_project_action.isEnabled()
+    assert window.open_project_action.isEnabled()
+    assert window.settings_action.isEnabled()
+    for action in (
+        window.toolbar_save_action,
+        window.save_action,
+        window.open_folder_action,
+        window.add_chapter_action,
+        window.add_episode_action,
+        window.rename_action,
+        window.delete_action,
+    ):
+        assert not action.isEnabled()
+    assert all(not window.tabs.isTabEnabled(index) for index in range(7))
+
+    project = window.api.create_project(tmp_path, "空作品")
+    window._after_project_loaded()
+    assert window.add_chapter_action.isEnabled()
+    assert window.toolbar_save_action.isEnabled()
+    assert window.save_action.isEnabled()
+    assert window.open_folder_action.isEnabled()
+    assert not window.add_episode_action.isEnabled()
+    assert not window.rename_action.isEnabled()
+    assert not window.delete_action.isEnabled()
+    assert window.editor_tab.editor.isReadOnly()
+    assert window.note_tab.editor.isReadOnly()
+    assert all(not window.tabs.isTabEnabled(index) for index in (0, 1, 2))
+    assert all(window.tabs.isTabEnabled(index) for index in (3, 4, 5, 6))
+
+    chapter = window.api.create_chapter("自由な章")
+    window.refresh_tree()
+    window.tree.setCurrentItem(window.tree.topLevelItem(0))
+    app.processEvents()
+    assert window.add_episode_action.isEnabled()
+    assert window.rename_action.isEnabled()
+    assert window.delete_action.isEnabled()
+    assert window.editor_tab.editor.isReadOnly()
+    assert all(not window.tabs.isTabEnabled(index) for index in (0, 1, 2))
+
+    episode = window.api.create_episode(chapter.id, "自由な話")
+    window.refresh_tree()
+    window.tree.select_episode(episode.id)
+    app.processEvents()
+    assert not window.add_episode_action.isEnabled()
+    assert window.rename_action.isEnabled()
+    assert window.delete_action.isEnabled()
+    assert not window.editor_tab.editor.isReadOnly()
+    assert not window.note_tab.editor.isReadOnly()
+    assert all(window.tabs.isTabEnabled(index) for index in range(7))
+
+    window.api.delete_episode(episode.id)
+    window.current_episode_id = None
+    window.editor_tab.set_text("")
+    window.note_tab.set_text("")
+    window.refresh_tree()
+    assert window.editor_tab.editor.isReadOnly()
+    assert window.note_tab.editor.isReadOnly()
+    assert not window.add_episode_action.isEnabled()
+    assert not window.rename_action.isEnabled()
+    assert not window.delete_action.isEnabled()
+    assert project.chapters[0].episodes == []
+    window._dirty_sources.clear()
+    window.close()
     app.processEvents()
 
 
