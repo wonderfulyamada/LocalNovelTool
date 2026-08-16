@@ -384,9 +384,14 @@ class MainWindow(QMainWindow):
         message.setDefaultButton(cancel_button)
         message.exec()
         clicked = message.clickedButton()
-        if clicked is archive_button:
+        role = message.buttonRole(clicked) if clicked is not None else None
+        return self._tutorial_choice_for_role(role)
+
+    @staticmethod
+    def _tutorial_choice_for_role(role) -> str:
+        if role == QMessageBox.ButtonRole.AcceptRole:
             return "archive"
-        if clicked is recreate_button:
+        if role == QMessageBox.ButtonRole.DestructiveRole:
             return "recreate"
         return "cancel"
 

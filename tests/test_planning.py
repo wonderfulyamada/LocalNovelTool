@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from PySide6.QtCore import QModelIndex, QSettings
 from PySide6.QtGui import QKeySequence
-from PySide6.QtWidgets import QApplication, QDialog, QWidget
+from PySide6.QtWidgets import QApplication, QDialog, QMessageBox, QWidget
 
 import local_novel_tool.gui.main_window as main_window_module
 import local_novel_tool.gui.preview_tab as preview_module
@@ -14,6 +14,11 @@ from local_novel_tool.core.api import CoreAPI
 from local_novel_tool.core.models import SearchResult
 from local_novel_tool.core.project import REFERENCE_CATEGORIES
 from local_novel_tool.gui.plot_tab import PlotTab
+from local_novel_tool.gui.sample_project import (
+    SAMPLE_PROJECT_TITLE,
+    initialize_sample_project,
+    tutorial_resource_path,
+)
 from local_novel_tool.gui.timeline_tab import TimelineTab
 
 
@@ -342,6 +347,87 @@ def test_failed_tutorial_archive_prevents_recreation_and_preserves_normal_projec
     assert (tutorial_root / "project.json").is_file()
     window.close()
     app.processEvents()
+
+
+def test_tutorial_menu_archives_and_reloads_bundled_original(
+    tmp_path: Path, monkeypatch
+) -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class FakeWebView(QWidget):
+        def setHtml(self, _rendered: str) -> None:  # noqa: N802
+            pass
+
+    monkeypatch.setattr(preview_module, "QWebEngineView", FakeWebView)
+    monkeypatch.setattr(
+        main_window_module.MainWindow, "_try_open_initial_project", lambda self: None
+    )
+    tutorial_parent = tmp_path / "Documents" / "LocalNovelTool"
+    projects_root = tmp_path / "configured-projects"
+    projects_root.mkdir()
+    monkeypatch.setattr(
+        main_window_module.MainWindow,
+        "_tutorial_parent",
+        staticmethod(lambda: tutorial_parent),
+    )
+    window = main_window_module.MainWindow()
+    window.settings = QSettings(
+        str(tmp_path / "settings-regression.ini"), QSettings.Format.IniFormat
+    )
+    window._set_projects_parent(projects_root)
+    tutorial = initialize_sample_project(window.api, window.settings, tutorial_parent)
+    assert tutorial is not None
+    window._after_project_loaded()
+    edited = tutorial.root / "GUI編集内容.txt"
+    edited.write_text("退避する内容", encoding="utf-8")
+
+    monkeypatch.setattr(window, "_tutorial_recreation_choice", lambda: "archive")
+    action = next(
+        item
+        for item in window.findChildren(main_window_module.QAction)
+        if item.text() == "チュートリアルを再作成"
+    )
+    action.trigger()
+
+    archives = list(projects_root.iterdir())
+    assert len(archives) == 1
+    assert (archives[0] / "GUI編集内容.txt").read_text(encoding="utf-8") == "退避する内容"
+    assert not edited.exists()
+    assert window.api.project is not None
+    assert window.api.project.root == (tutorial_parent / SAMPLE_PROJECT_TITLE).resolve()
+    source = tutorial_resource_path()
+    source_files = {
+        path.relative_to(source): path.read_bytes()
+        for path in source.rglob("*")
+        if path.is_file()
+    }
+    recreated_files = {
+        path.relative_to(window.api.project.root): path.read_bytes()
+        for path in window.api.project.root.rglob("*")
+        if path.is_file()
+    }
+    assert recreated_files == source_files
+
+    marker = window.api.project.root / "そのまま再作成.txt"
+    marker.write_text("削除対象", encoding="utf-8")
+    monkeypatch.setattr(window, "_tutorial_recreation_choice", lambda: "recreate")
+    action.trigger()
+    assert not marker.exists()
+    assert list(projects_root.iterdir()) == archives
+    window.close()
+    app.processEvents()
+
+
+def test_tutorial_choice_maps_qt_button_roles() -> None:
+    assert main_window_module.MainWindow._tutorial_choice_for_role(
+        QMessageBox.ButtonRole.AcceptRole
+    ) == "archive"
+    assert main_window_module.MainWindow._tutorial_choice_for_role(
+        QMessageBox.ButtonRole.DestructiveRole
+    ) == "recreate"
+    assert main_window_module.MainWindow._tutorial_choice_for_role(
+        QMessageBox.ButtonRole.RejectRole
+    ) == "cancel"
 
 
 def test_new_project_dialog_destination_tracks_trimmed_title(tmp_path: Path) -> None:
