@@ -227,6 +227,9 @@ class MainWindow(QMainWindow):
         save_action.triggered.connect(self.manual_save)
         file_menu.addAction(save_action)
         self.save_action = save_action
+        self.backup_action = QAction("バックアップを作成", self)
+        self.backup_action.triggered.connect(self.create_backup)
+        file_menu.addAction(self.backup_action)
         file_menu.addSeparator()
         self.open_folder_action = QAction("作品フォルダを開く", self)
         self.open_folder_action.setEnabled(False)
@@ -342,6 +345,7 @@ class MainWindow(QMainWindow):
 
         self.toolbar_save_action.setEnabled(has_project)
         self.save_action.setEnabled(has_project)
+        self.backup_action.setEnabled(has_project)
         self.open_folder_action.setEnabled(has_project)
         self.add_chapter_action.setEnabled(has_project)
         self.add_episode_action.setEnabled(chapter_selected)
@@ -585,6 +589,21 @@ class MainWindow(QMainWindow):
     def open_project_folder(self) -> None:
         if self.api.project:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.api.project.root)))
+
+    def create_backup(self) -> None:
+        if not self.api.project:
+            return
+        try:
+            destination = self.api.create_backup(self._tutorial_parent() / "Backups")
+        except Exception as exc:
+            QMessageBox.critical(self, "バックアップ失敗", str(exc))
+            return
+        QMessageBox.information(
+            self,
+            "バックアップ完了",
+            f"バックアップを作成しました。\n{destination}",
+        )
+        self.statusBar().showMessage(f"バックアップ: {destination}")
 
     def _load_project(self, root: Path) -> None:
         try:

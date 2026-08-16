@@ -889,6 +889,7 @@ def test_project_actions_follow_project_and_tree_selection(
     for action in (
         window.toolbar_save_action,
         window.save_action,
+        window.backup_action,
         window.open_folder_action,
         window.add_chapter_action,
         window.add_episode_action,
@@ -903,6 +904,7 @@ def test_project_actions_follow_project_and_tree_selection(
     assert window.add_chapter_action.isEnabled()
     assert window.toolbar_save_action.isEnabled()
     assert window.save_action.isEnabled()
+    assert window.backup_action.isEnabled()
     assert window.open_folder_action.isEnabled()
     assert not window.add_episode_action.isEnabled()
     assert not window.rename_action.isEnabled()
@@ -944,6 +946,62 @@ def test_project_actions_follow_project_and_tree_selection(
     assert not window.rename_action.isEnabled()
     assert not window.delete_action.isEnabled()
     assert project.chapters[0].episodes == []
+    window._dirty_sources.clear()
+    window.close()
+    app.processEvents()
+
+
+def test_manual_backup_uses_default_external_root_and_reports_result(
+    tmp_path: Path, monkeypatch
+) -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class FakeWebView(QWidget):
+        def setHtml(self, _rendered: str) -> None:  # noqa: N802
+            pass
+
+    monkeypatch.setattr(preview_module, "QWebEngineView", FakeWebView)
+    monkeypatch.setattr(
+        main_window_module.MainWindow, "_try_open_initial_project", lambda self: None
+    )
+    tutorial_parent = tmp_path / "Documents" / "LocalNovelTool"
+    monkeypatch.setattr(
+        main_window_module.MainWindow,
+        "_tutorial_parent",
+        staticmethod(lambda: tutorial_parent),
+    )
+    project_parent = tmp_path / "projects"
+    project_parent.mkdir()
+    window = main_window_module.MainWindow()
+    window.api.create_project(project_parent, "バックアップ対象")
+    window._after_project_loaded()
+    messages: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        main_window_module.QMessageBox,
+        "information",
+        lambda _parent, title, text: messages.append((title, text)),
+    )
+    window.create_backup()
+
+    backups = tutorial_parent / "Backups"
+    generations = list(backups.rglob("project.json"))
+    assert len(generations) == 1
+    assert messages[0][0] == "バックアップ完了"
+    assert str(generations[0].parent) in messages[0][1]
+
+    errors: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        window.api,
+        "create_backup",
+        lambda _root: (_ for _ in ()).throw(OSError("書き込み不能")),
+    )
+    monkeypatch.setattr(
+        main_window_module.QMessageBox,
+        "critical",
+        lambda _parent, title, text: errors.append((title, text)),
+    )
+    window.create_backup()
+    assert errors == [("バックアップ失敗", "書き込み不能")]
     window._dirty_sources.clear()
     window.close()
     app.processEvents()

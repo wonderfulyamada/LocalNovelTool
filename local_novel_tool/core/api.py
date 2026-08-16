@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .backup import create_project_backup
 from .models import Chapter, Episode, PlotItem, Reference, SearchResult, TimelineItem
 from .project import NovelProject
 
@@ -24,6 +25,9 @@ class CoreAPI:
     def open_project(self, root: Path) -> NovelProject:
         self.project = NovelProject.open(root)
         return self.project
+
+    def create_backup(self, backups_root: Path) -> Path:
+        return create_project_backup(self._require().root, backups_root)
 
     def chapters(self) -> list[Chapter]:
         return self._require().chapters
