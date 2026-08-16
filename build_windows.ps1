@@ -49,7 +49,6 @@ Copy-Item -LiteralPath (Join-Path $projectRoot "CREDITS.txt") -Destination $dist
 Copy-Item -LiteralPath (Join-Path $projectRoot "licenses") -Destination $distribution -Recurse
 $distributionResources = Join-Path $distribution "resources"
 New-Item -ItemType Directory -Path $distributionResources -Force | Out-Null
-Copy-Item -LiteralPath (Join-Path $projectRoot "resources\tutorial") -Destination $distributionResources -Recurse
 Copy-Item -LiteralPath (Join-Path $projectRoot "build_assets\app.ico") -Destination (Join-Path $distributionResources "app.ico")
 
 if (Test-Path -LiteralPath $zipPath) {

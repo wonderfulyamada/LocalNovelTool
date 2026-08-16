@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import shutil
-import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -11,28 +9,20 @@ from PySide6.QtCore import QSettings
 
 from local_novel_tool.core.api import CoreAPI
 from local_novel_tool.core.project import NovelProject
+from local_novel_tool.tutorial.generator import (
+    generate_tutorial,
+    tutorial_matches_template,
+)
 
 SAMPLE_INITIALIZED_KEY = "sample_project_initialized"
 SAMPLE_PROJECT_TITLE = "LocalNovelTool チュートリアル"
 SAVED_TUTORIAL_TITLE = f"{SAMPLE_PROJECT_TITLE} - 保存"
 
 
-def tutorial_resource_path() -> Path:
-    candidates = (
-        Path(sys.executable).resolve().parent / "resources" / "tutorial",
-        Path(__file__).resolve().parents[2] / "resources" / "tutorial",
-    )
-    for candidate in candidates:
-        if (candidate / "project.json").is_file():
-            return candidate
-    raise FileNotFoundError("同梱チュートリアルが見つかりません。")
-
-
 def initialize_sample_project(
     api: CoreAPI,
     settings: QSettings,
     parent: Path,
-    source: Path | None = None,
 ) -> NovelProject | None:
     if settings.value(SAMPLE_INITIALIZED_KEY, False, bool):
         return None
@@ -40,17 +30,16 @@ def initialize_sample_project(
     parent.mkdir(parents=True, exist_ok=True)
     previous_project = api.project
     target = parent / SAMPLE_PROJECT_TITLE
-    copied = False
+    target_existed = target.exists()
     try:
-        shutil.copytree(source or tutorial_resource_path(), target)
-        copied = True
+        generate_tutorial(target)
         project = api.open_project(target)
         settings.setValue(SAMPLE_INITIALIZED_KEY, True)
         settings.sync()
         return project
     except Exception:
         api.project = previous_project
-        if copied and target.exists():
+        if not target_existed and target.exists():
             shutil.rmtree(target)
         raise
 
@@ -103,41 +92,12 @@ def archive_tutorial_project(
     return destination
 
 
-def tutorial_matches_bundled(
-    tutorial_root: Path, source: Path | None = None
-) -> bool:
-    """Compare user-editable tutorial data with the currently bundled tutorial."""
-
-    def snapshot(root: Path) -> tuple[dict, dict[str, bytes]]:
-        with (root / "project.json").open("r", encoding="utf-8") as fp:
-            metadata = json.load(fp)
-        metadata.pop("recent_references", None)
-
-        content_paths: set[str] = set()
-        for chapter in metadata.get("chapters", []):
-            for episode in chapter.get("episodes", []):
-                content_paths.add(str(episode["body_file"]))
-                content_paths.add(str(episode["note_file"]))
-        for reference in metadata.get("references", []):
-            content_paths.add(str(reference["file"]))
-
-        contents = {
-            relative: (root / relative).read_bytes()
-            for relative in sorted(content_paths)
-        }
-        return metadata, contents
-
-    try:
-        return snapshot(tutorial_root.resolve()) == snapshot(
-            (source or tutorial_resource_path()).resolve()
-        )
-    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
-        return False
+def tutorial_matches_bundled(tutorial_root: Path) -> bool:
+    """Compare user-editable tutorial data with the built-in template."""
+    return tutorial_matches_template(tutorial_root)
 
 
-def recreate_tutorial_project(
-    api: CoreAPI, parent: Path, source: Path | None = None
-) -> NovelProject:
+def recreate_tutorial_project(api: CoreAPI, parent: Path) -> NovelProject:
     parent.mkdir(parents=True, exist_ok=True)
     target = parent / SAMPLE_PROJECT_TITLE
     suffix = uuid.uuid4().hex
@@ -148,7 +108,7 @@ def recreate_tutorial_project(
     installed_new = False
 
     try:
-        shutil.copytree(source or tutorial_resource_path(), staged)
+        generate_tutorial(staged)
         if target.exists():
             target.rename(backup)
             replaced_existing = True
