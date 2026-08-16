@@ -156,7 +156,7 @@ class MainWindow(QMainWindow):
         self.resize(1200, 760)
         self.api = CoreAPI()
         self.current_episode_id: str | None = None
-        self.session_modified = False
+        self._dirty_sources: set[str] = set()
         config_dir = Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppConfigLocation))
         config_dir.mkdir(parents=True, exist_ok=True)
         self.settings = QSettings(str(config_dir / "settings.ini"), QSettings.Format.IniFormat)
@@ -278,17 +278,20 @@ class MainWindow(QMainWindow):
         self.timeline_tab.save_requested.connect(self.save_timeline_item)
         self.timeline_tab.reorder_requested.connect(self.reorder_timeline_items)
         self.editor_tab.editor.textChanged.connect(
-            lambda: self._mark_session_modified(
+            lambda: self._mark_dirty(
+                "body",
                 self.current_episode_id is not None and not self.editor_tab._loading
             )
         )
         self.note_tab.editor.textChanged.connect(
-            lambda: self._mark_session_modified(
+            lambda: self._mark_dirty(
+                "note",
                 self.current_episode_id is not None and not self.note_tab._loading
             )
         )
         self.reference_tab.editor.textChanged.connect(
-            lambda: self._mark_session_modified(
+            lambda: self._mark_dirty(
+                "reference",
                 self.reference_tab.current_id is not None
                 and not self.reference_tab._loading
             )
@@ -300,7 +303,8 @@ class MainWindow(QMainWindow):
             self.plot_tab.episode.currentIndexChanged,
         ):
             signal.connect(
-                lambda *_args: self._mark_session_modified(
+                lambda *_args: self._mark_dirty(
+                    "plot",
                     self.plot_tab.current_id is not None
                     and not self.plot_tab._loading
                     and not self.plot_tab._rebuilding
@@ -312,16 +316,23 @@ class MainWindow(QMainWindow):
             self.timeline_tab.content.textChanged,
         ):
             signal.connect(
-                lambda *_args: self._mark_session_modified(
+                lambda *_args: self._mark_dirty(
+                    "timeline",
                     self.timeline_tab.current_id is not None
                     and not self.timeline_tab._loading
                     and not self.timeline_tab._rebuilding
                 )
             )
 
-    def _mark_session_modified(self, changed: bool = True) -> None:
+    def _mark_dirty(self, source: str, changed: bool = True) -> None:
         if changed and self.api.project:
-            self.session_modified = True
+            self._dirty_sources.add(source)
+
+    def _mark_saved(self, source: str) -> None:
+        self._dirty_sources.discard(source)
+
+    def _has_unsaved_changes(self) -> bool:
+        return bool(self._dirty_sources)
 
     def _try_open_last_project(self) -> None:
         last = self.settings.value("last_project", "", str)
@@ -510,6 +521,7 @@ class MainWindow(QMainWindow):
         self.reference_tab.timer.stop()
         self.plot_tab.timer.stop()
         self.timeline_tab.timer.stop()
+        self._dirty_sources.clear()
         self.statusBar().showMessage("保存しました")
         return True
 
@@ -563,7 +575,7 @@ class MainWindow(QMainWindow):
         if not project:
             return
         self.current_episode_id = None
-        self.session_modified = False
+        self._dirty_sources.clear()
         self.editor_tab.set_text("")
         self.note_tab.set_text("")
         self.preview_tab.set_source_text("")
@@ -599,7 +611,6 @@ class MainWindow(QMainWindow):
         title, ok = QInputDialog.getText(self, "章追加", "章名")
         if ok:
             self.api.create_chapter(title)
-            self._mark_session_modified()
             self.refresh_tree()
 
     def add_episode(self) -> None:
@@ -616,11 +627,9 @@ class MainWindow(QMainWindow):
         if chapter_id is None:
             chapter = self.api.create_chapter("第一章")
             chapter_id = chapter.id
-            self._mark_session_modified()
         title, ok = QInputDialog.getText(self, "話追加", "話タイトル")
         if ok:
             episode = self.api.create_episode(chapter_id, title)
-            self._mark_session_modified()
             self.refresh_tree()
             self.tree.select_episode(episode.id)
 
@@ -637,7 +646,6 @@ class MainWindow(QMainWindow):
             self.api.rename_chapter(selected_id, title)
         else:
             self.api.rename_episode(selected_id, title)
-        self._mark_session_modified()
         self.refresh_tree()
 
     def delete_selected(self) -> None:
@@ -657,7 +665,6 @@ class MainWindow(QMainWindow):
                 self.current_episode_id = None
                 self.editor_tab.set_text("")
                 self.note_tab.set_text("")
-        self._mark_session_modified()
         self.refresh_tree()
 
     def open_episode(self, episode_id: str) -> None:
@@ -675,12 +682,14 @@ class MainWindow(QMainWindow):
     def save_current_body(self, text: str) -> None:
         if self.current_episode_id and self.api.project:
             self.api.save_episode_body(self.current_episode_id, text)
+            self._mark_saved("body")
             if self.tabs.currentWidget() == self.preview_tab:
                 self.preview_tab.set_source_text(text)
 
     def save_current_note(self, text: str) -> None:
         if self.current_episode_id and self.api.project:
             self.api.save_episode_note(self.current_episode_id, text)
+            self._mark_saved("note")
 
     def _tab_changed(self, _index: int) -> None:
         if self.tabs.currentWidget() == self.preview_tab:
@@ -697,7 +706,6 @@ class MainWindow(QMainWindow):
             return
         try:
             self.api.reorder_structure(order)
-            self._mark_session_modified()
             self.refresh_tree()
         except ProjectError as exc:
             QMessageBox.warning(self, "移動できません", str(exc))
@@ -739,23 +747,21 @@ class MainWindow(QMainWindow):
         if not self.api.project:
             return
         ref = self.api.create_reference(category, title)
-        self._mark_session_modified()
         self.refresh_references()
         self.open_reference(ref.id)
 
     def rename_reference(self, reference_id: str, title: str) -> None:
         self.api.rename_reference(reference_id, title)
-        self._mark_session_modified()
         self.refresh_references()
         self.open_reference(reference_id)
 
     def delete_reference(self, reference_id: str) -> None:
         self.api.delete_reference(reference_id)
-        self._mark_session_modified()
         self.refresh_references()
 
     def save_reference(self, reference_id: str, text: str) -> None:
         self.api.save_reference(reference_id, text)
+        self._mark_saved("reference")
 
     def open_plot_item(self, plot_id: str) -> None:
         if self.api.project:
@@ -765,7 +771,6 @@ class MainWindow(QMainWindow):
     def create_plot_item(self, title: str) -> None:
         if self.api.project:
             item = self.api.create_plot_item(title)
-            self._mark_session_modified()
             self.refresh_planning()
             self.plot_tab.select_item(item.id)
 
@@ -776,14 +781,12 @@ class MainWindow(QMainWindow):
         self.api.update_plot_item(
             plot_id, title, item.content, item.chapter_id, item.episode_id
         )
-        self._mark_session_modified()
         self.refresh_planning()
         self.plot_tab.select_item(plot_id)
 
     def delete_plot_item(self, plot_id: str) -> None:
         if self.api.project:
             self.api.delete_plot_item(plot_id)
-            self._mark_session_modified()
             self.refresh_planning()
 
     def save_plot_item(
@@ -800,11 +803,11 @@ class MainWindow(QMainWindow):
             )
             saved = self.api.project.get_plot_item(plot_id)
             self.plot_tab.update_item_label(plot_id, saved.title)
+            self._mark_saved("plot")
 
     def reorder_plot_items(self, ordered_ids: list[str]) -> None:
         if self.api.project:
             self.api.reorder_plot_items(ordered_ids)
-            self._mark_session_modified()
 
     def open_timeline_item(self, timeline_id: str) -> None:
         if self.api.project:
@@ -816,14 +819,12 @@ class MainWindow(QMainWindow):
     def create_timeline_item(self, point: str, title: str) -> None:
         if self.api.project:
             item = self.api.create_timeline_item(point, title)
-            self._mark_session_modified()
             self.refresh_planning()
             self.timeline_tab.select_item(item.id)
 
     def delete_timeline_item(self, timeline_id: str) -> None:
         if self.api.project:
             self.api.delete_timeline_item(timeline_id)
-            self._mark_session_modified()
             self.refresh_planning()
 
     def save_timeline_item(
@@ -835,17 +836,17 @@ class MainWindow(QMainWindow):
             self.timeline_tab.update_item_label(
                 timeline_id, saved.point, saved.title
             )
+            self._mark_saved("timeline")
 
     def reorder_timeline_items(self, ordered_ids: list[str]) -> None:
         if self.api.project:
             self.api.reorder_timeline_items(ordered_ids)
-            self._mark_session_modified()
 
     def _confirm_save_on_close(self) -> bool:
         message = QMessageBox(self)
         message.setIcon(QMessageBox.Icon.Question)
         message.setWindowTitle("終了確認")
-        message.setText("この作品には今回の起動中に変更があります。")
+        message.setText("未保存の変更があります。")
         message.setInformativeText("保存して終了しますか？")
         message.addButton("保存して終了", QMessageBox.ButtonRole.AcceptRole)
         cancel_button = message.addButton(
@@ -860,7 +861,7 @@ class MainWindow(QMainWindow):
         )
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
-        if self.session_modified:
+        if self._has_unsaved_changes():
             if not self._confirm_save_on_close():
                 event.ignore()
                 return
