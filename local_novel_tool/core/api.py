@@ -17,8 +17,10 @@ class CoreAPI:
             raise RuntimeError("作品が開かれていません。")
         return self.project
 
-    def create_project(self, parent: Path, title: str) -> NovelProject:
-        self.project = NovelProject.create(parent, title)
+    def create_project(
+        self, parent: Path, title: str, with_initial_episode: bool = False
+    ) -> NovelProject:
+        self.project = NovelProject.create(parent, title, with_initial_episode)
         return self.project
 
     def open_project(self, root: Path) -> NovelProject:

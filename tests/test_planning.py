@@ -692,6 +692,131 @@ def test_new_project_uses_configured_root_without_moving_existing(
     app.processEvents()
 
 
+def test_configured_root_new_project_saves_and_reopens_body(
+    tmp_path: Path, monkeypatch
+) -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class FakeWebView(QWidget):
+        def setHtml(self, _rendered: str) -> None:  # noqa: N802
+            pass
+
+    class FakeNewProjectDialog:
+        def __init__(self, projects_parent, _parent) -> None:
+            assert projects_parent == configured_root
+
+        def exec(self) -> QDialog.DialogCode:
+            return QDialog.DialogCode.Accepted
+
+        def project_title(self) -> str:
+            return "保存テスト"
+
+    monkeypatch.setattr(preview_module, "QWebEngineView", FakeWebView)
+    monkeypatch.setattr(
+        main_window_module.MainWindow, "_try_open_initial_project", lambda self: None
+    )
+    monkeypatch.setattr(main_window_module, "NewProjectDialog", FakeNewProjectDialog)
+    old_root = tmp_path / "old-root"
+    old_root.mkdir()
+    old_project = CoreAPI().create_project(old_root, "既存作品", True)
+    old_episode = old_project.chapters[0].episodes[0]
+    old_project.save_episode_body(old_episode.id, "既存本文")
+    old_body = old_project.root / old_episode.body_file
+    configured_root = tmp_path / "configured-root"
+    configured_root.mkdir()
+
+    window = main_window_module.MainWindow()
+    window.settings = QSettings(
+        str(tmp_path / "settings-save-regression.ini"), QSettings.Format.IniFormat
+    )
+    window.api.open_project(old_project.root)
+    window._after_project_loaded()
+    window._set_projects_parent(configured_root)
+    window.new_project()
+
+    project = window.api.project
+    assert project is not None
+    assert project.root == (configured_root / "保存テスト").resolve()
+    assert window._projects_parent() == configured_root
+    assert window.settings.value("last_project", "", str) == str(project.root)
+    assert (project.root / "project.json").is_file()
+    assert (project.root / "manuscript").is_dir()
+    assert len(project.chapters) == 1
+    assert len(project.chapters[0].episodes) == 1
+    episode = project.chapters[0].episodes[0]
+    body_path = project.root / episode.body_file
+    assert body_path.is_file()
+    assert window.current_episode_id == episode.id
+
+    window.editor_tab.editor.setPlainText("SAVE_REGRESSION_TEST_20260816")
+    assert window.manual_save()
+    assert body_path.read_text(encoding="utf-8") == "SAVE_REGRESSION_TEST_20260816"
+
+    window.editor_tab.editor.setPlainText("SAVE_REGRESSION_AUTOSAVE_20260816")
+    window.editor_tab.timer.timeout.emit()
+    assert body_path.read_text(encoding="utf-8") == "SAVE_REGRESSION_AUTOSAVE_20260816"
+
+    reopened = CoreAPI().open_project(project.root)
+    reopened_episode = reopened.chapters[0].episodes[0]
+    assert reopened.load_episode_body(reopened_episode.id) == (
+        "SAVE_REGRESSION_AUTOSAVE_20260816"
+    )
+    assert old_body.read_text(encoding="utf-8") == "既存本文"
+    assert not (old_project.root / "manuscript" / body_path.name).exists()
+    window.session_modified = False
+    window.close()
+    app.processEvents()
+
+
+def test_default_root_new_project_creates_episode_and_saves_body(
+    tmp_path: Path, monkeypatch
+) -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class FakeWebView(QWidget):
+        def setHtml(self, _rendered: str) -> None:  # noqa: N802
+            pass
+
+    tutorial_parent = tmp_path / "Documents" / "LocalNovelTool"
+    default_root = tutorial_parent / "作品"
+
+    class FakeNewProjectDialog:
+        def __init__(self, projects_parent, _parent) -> None:
+            assert projects_parent == default_root
+
+        def exec(self) -> QDialog.DialogCode:
+            return QDialog.DialogCode.Accepted
+
+        def project_title(self) -> str:
+            return "デフォルト保存テスト"
+
+    monkeypatch.setattr(preview_module, "QWebEngineView", FakeWebView)
+    monkeypatch.setattr(
+        main_window_module.MainWindow, "_try_open_initial_project", lambda self: None
+    )
+    monkeypatch.setattr(
+        main_window_module.MainWindow,
+        "_tutorial_parent",
+        staticmethod(lambda: tutorial_parent),
+    )
+    monkeypatch.setattr(main_window_module, "NewProjectDialog", FakeNewProjectDialog)
+    window = main_window_module.MainWindow()
+    window.settings = QSettings(
+        str(tmp_path / "settings-default-save.ini"), QSettings.Format.IniFormat
+    )
+    window.new_project()
+    project = window.api.project
+    assert project is not None
+    episode = project.chapters[0].episodes[0]
+    window.editor_tab.editor.setPlainText("DEFAULT_ROOT_SAVE_TEST")
+    window.editor_tab.timer.timeout.emit()
+    assert project.root == (default_root / "デフォルト保存テスト").resolve()
+    assert project.load_episode_body(episode.id) == "DEFAULT_ROOT_SAVE_TEST"
+    window.session_modified = False
+    window.close()
+    app.processEvents()
+
+
 def test_planning_lists_emit_dragged_order() -> None:
     app = QApplication.instance() or QApplication([])
     first = SimpleNamespace(id="first", title="最初", point="2年前")
