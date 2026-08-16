@@ -2,11 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, QStandardPaths, Qt
-from PySide6.QtGui import QAction, QCloseEvent
+from PySide6.QtCore import QSettings, QStandardPaths, Qt, QUrl
+from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices
 from PySide6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
+    QFormLayout,
     QInputDialog,
+    QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QSplitter,
@@ -29,6 +34,40 @@ from .sample_project import (
 )
 from .search_tab import SearchTab
 from .timeline_tab import TimelineTab
+
+
+class NewProjectDialog(QDialog):
+    """Collect a project title while showing its fixed destination."""
+
+    def __init__(self, projects_parent: Path, parent=None) -> None:
+        super().__init__(parent)
+        self.projects_parent = projects_parent
+        self.setWindowTitle("新規作品")
+        self.title_edit = QLineEdit(self)
+        self.destination_label = QLabel(self)
+        self.destination_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self.destination_label.setWordWrap(True)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel,
+            parent=self,
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout = QFormLayout(self)
+        layout.addRow("作品名:", self.title_edit)
+        layout.addRow("保存先:", self.destination_label)
+        layout.addRow(buttons)
+        self.title_edit.textChanged.connect(self._update_destination)
+        self._update_destination("")
+
+    def _update_destination(self, title: str) -> None:
+        self.destination_label.setText(str(self.projects_parent / title.strip()))
+
+    def project_title(self) -> str:
+        return self.title_edit.text().strip()
 
 
 class MainWindow(QMainWindow):
@@ -98,6 +137,12 @@ class MainWindow(QMainWindow):
             toolbar.addAction(action)
 
     def _build_menu(self) -> None:
+        file_menu = self.menuBar().addMenu("ファイル")
+        self.open_folder_action = QAction("作品フォルダを開く", self)
+        self.open_folder_action.setEnabled(False)
+        self.open_folder_action.triggered.connect(self.open_project_folder)
+        file_menu.addAction(self.open_folder_action)
+
         help_menu = self.menuBar().addMenu("ヘルプ")
         tutorial_action = QAction("チュートリアルを再作成", self)
         tutorial_action.triggered.connect(self.recreate_tutorial)
@@ -203,13 +248,16 @@ class MainWindow(QMainWindow):
 
     def new_project(self) -> None:
         self._flush_editors()
-        title, ok = QInputDialog.getText(self, "新規作品", "作品名")
-        if not ok or not title.strip():
+        projects_parent = self._projects_parent()
+        dialog = NewProjectDialog(projects_parent, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        title = dialog.project_title()
+        if not title:
             return
         try:
-            projects_parent = self._projects_parent()
             projects_parent.mkdir(parents=True, exist_ok=True)
-            self.api.create_project(projects_parent, title.strip())
+            self.api.create_project(projects_parent, title)
             self._after_project_loaded()
         except ProjectError as exc:
             QMessageBox.warning(self, "作成できません", str(exc))
@@ -218,9 +266,15 @@ class MainWindow(QMainWindow):
 
     def open_project(self) -> None:
         self._flush_editors()
-        folder = QFileDialog.getExistingDirectory(self, "作品フォルダを開く")
+        folder = QFileDialog.getExistingDirectory(
+            self, "作品フォルダを開く", str(self._projects_parent())
+        )
         if folder:
             self._load_project(Path(folder))
+
+    def open_project_folder(self) -> None:
+        if self.api.project:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.api.project.root)))
 
     def _load_project(self, root: Path) -> None:
         try:
@@ -238,6 +292,7 @@ class MainWindow(QMainWindow):
         self.refresh_references()
         self.refresh_planning()
         self.setWindowTitle(f"{project.title} - {APP_NAME}")
+        self.open_folder_action.setEnabled(True)
         self.settings.setValue("last_project", str(project.root))
         self.statusBar().showMessage(str(project.root))
         if project.chapters and project.chapters[0].episodes:
