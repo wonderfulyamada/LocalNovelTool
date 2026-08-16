@@ -4,7 +4,7 @@ from pathlib import Path
 
 from .backup import create_project_backup
 from .models import Chapter, Episode, PlotItem, Reference, SearchResult, TimelineItem
-from .project import NovelProject
+from .project import NovelProject, ProjectContentError
 
 
 class CoreAPI:
@@ -146,3 +146,6 @@ class CoreAPI:
 
     def search(self, query: str) -> list[SearchResult]:
         return self._require().search(query)
+
+    def content_errors(self) -> list[ProjectContentError]:
+        return list(self._require().last_content_errors)

@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from local_novel_tool.core.api import CoreAPI
-from local_novel_tool.core.project import ProjectError
+from local_novel_tool.core.project import ProjectContentError, ProjectError
 from local_novel_tool.version import APP_NAME, APP_VERSION, AUTHOR_NAME
 from .editor_tab import TextEditorTab
 from .plot_tab import PlotTab
@@ -733,13 +733,26 @@ class MainWindow(QMainWindow):
             return
         self._flush_editors()
         self.current_episode_id = episode_id
-        self.editor_tab.set_text(self.api.load_episode_body(episode_id))
-        self.note_tab.set_text(self.api.load_episode_note(episode_id))
+        errors: list[str] = []
+        try:
+            body = self.api.load_episode_body(episode_id)
+        except ProjectContentError as exc:
+            body = ""
+            errors.append(str(exc))
+        try:
+            note = self.api.load_episode_note(episode_id)
+        except ProjectContentError as exc:
+            note = ""
+            errors.append(str(exc))
+        self.editor_tab.set_text(body)
+        self.note_tab.set_text(note)
         episode = self.api.project.get_episode(episode_id)
         self.statusBar().showMessage(episode.title)
         if self.tabs.currentWidget() == self.preview_tab:
             self.preview_tab.set_source_text(self.editor_tab.editor.toPlainText())
         self._update_action_states()
+        if errors:
+            QMessageBox.warning(self, "データ読込エラー", "\n".join(errors))
 
     def _set_episode_editors_enabled(self, enabled: bool) -> None:
         self.editor_tab.editor.setReadOnly(not enabled)
@@ -783,6 +796,13 @@ class MainWindow(QMainWindow):
     def perform_search(self, query: str) -> None:
         if self.api.project:
             self.search_tab.set_results(self.api.search(query))
+            errors = self.api.content_errors()
+            if errors:
+                QMessageBox.warning(
+                    self,
+                    "データ読込エラー",
+                    "\n".join(str(error) for error in errors),
+                )
 
     def open_search_result(self, result) -> None:
         if result.kind in ("episode", "episode_note"):
@@ -808,7 +828,11 @@ class MainWindow(QMainWindow):
             return
         self.reference_tab.flush()
         ref = self.api.project.get_reference(reference_id)
-        text = self.api.load_reference(reference_id)
+        try:
+            text = self.api.load_reference(reference_id)
+        except ProjectContentError as exc:
+            text = ""
+            QMessageBox.warning(self, "データ読込エラー", str(exc))
         self.reference_tab.show_reference(ref, text)
         self.refresh_references()
 

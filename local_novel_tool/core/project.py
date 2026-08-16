@@ -27,6 +27,10 @@ class ProjectError(RuntimeError):
     pass
 
 
+class ProjectContentError(ProjectError):
+    pass
+
+
 class NovelProject:
     def __init__(self, root: Path, data: dict[str, Any]) -> None:
         self.root = root.resolve()
@@ -42,6 +46,7 @@ class NovelProject:
         self.timeline_items = [
             TimelineItem.from_dict(item) for item in data.get("timeline_items", [])
         ]
+        self.last_content_errors: list[ProjectContentError] = []
 
     @classmethod
     def create(cls, parent: Path, title: str) -> "NovelProject":
@@ -97,18 +102,36 @@ class NovelProject:
         root = root.resolve()
         project_path = root / PROJECT_FILE
         if not project_path.exists():
-            raise ProjectError("project.json が見つかりません。")
-        with project_path.open("r", encoding="utf-8") as fp:
-            data = json.load(fp)
+            raise ProjectError(f"作品データが見つかりません: {project_path}")
+        try:
+            with project_path.open("r", encoding="utf-8") as fp:
+                data = json.load(fp)
+        except json.JSONDecodeError as exc:
+            raise ProjectError(
+                f"project.json が壊れています: {project_path} "
+                f"(行 {exc.lineno}, 列 {exc.colno}: {exc.msg})"
+            ) from exc
+        except (OSError, UnicodeError) as exc:
+            raise ProjectError(
+                f"project.json を読み込めません: {project_path}: {exc}"
+            ) from exc
+        if not isinstance(data, dict):
+            raise ProjectError(f"project.json の構造が不正です: {project_path}")
         try:
             data = migrate_project_data(
                 data, backup_before_migration=backup_before_migration
             )
         except FormatVersionError as exc:
-            raise ProjectError(str(exc)) from exc
+            raise ProjectError(f"{project_path}: {exc}") from exc
+        try:
+            project = cls(root, data)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ProjectError(
+                f"project.json の構造が不正です: {project_path}: {exc}"
+            ) from exc
         for folder in PROJECT_FOLDERS:
             (root / folder).mkdir(exist_ok=True)
-        return cls(root, data)
+        return project
 
     def _metadata(self) -> dict[str, Any]:
         return {
@@ -224,10 +247,21 @@ class NovelProject:
         self.save_metadata()
 
     def read_text(self, relative_path: str) -> str:
-        path = self.root / relative_path
-        if not path.exists():
-            return ""
-        return path.read_text(encoding="utf-8")
+        path = (self.root / relative_path).resolve()
+        try:
+            path.relative_to(self.root)
+        except ValueError as exc:
+            raise ProjectContentError(
+                f"作品フォルダ外のファイルは読み込めません: {relative_path}"
+            ) from exc
+        if not path.is_file():
+            raise ProjectContentError(f"ファイルが見つかりません: {path}")
+        try:
+            return path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            raise ProjectContentError(
+                f"ファイルを読み込めません: {path}: {exc}"
+            ) from exc
 
     def write_text(self, relative_path: str, text: str) -> None:
         path = self.root / relative_path
@@ -287,12 +321,13 @@ class NovelProject:
 
     def load_reference(self, reference_id: str) -> str:
         ref = self.get_reference(reference_id)
+        text = self.read_text(ref.file)
         if reference_id in self.recent_references:
             self.recent_references.remove(reference_id)
         self.recent_references.insert(0, reference_id)
         self.recent_references = self.recent_references[:20]
         self.save_metadata()
-        return self.read_text(ref.file)
+        return text
 
     def save_reference(self, reference_id: str, text: str) -> None:
         ref = self.get_reference(reference_id)
@@ -396,10 +431,18 @@ class NovelProject:
         self.save_metadata()
 
     def search(self, query: str) -> list[SearchResult]:
+        self.last_content_errors = []
         needle = query.strip().casefold()
         if not needle:
             return []
         results: list[SearchResult] = []
+
+        def safe_read(relative_path: str) -> str:
+            try:
+                return self.read_text(relative_path)
+            except ProjectContentError as exc:
+                self.last_content_errors.append(exc)
+                return ""
 
         def scan(kind: str, source_id: str, title: str, category: str, text: str) -> None:
             for line_no, line in enumerate(text.splitlines(), start=1):
@@ -417,15 +460,27 @@ class NovelProject:
 
         for chapter in self.chapters:
             for episode in chapter.episodes:
-                scan("episode", episode.id, episode.title, chapter.title, self.load_episode_body(episode.id))
-                scan("episode_note", episode.id, f"{episode.title} / 話メモ", chapter.title, self.load_episode_note(episode.id))
+                scan(
+                    "episode",
+                    episode.id,
+                    episode.title,
+                    chapter.title,
+                    safe_read(episode.body_file),
+                )
+                scan(
+                    "episode_note",
+                    episode.id,
+                    f"{episode.title} / 話メモ",
+                    chapter.title,
+                    safe_read(episode.note_file),
+                )
         for ref in self.references:
             scan(
                 "reference",
                 ref.id,
                 ref.title,
                 ref.category,
-                f"{ref.title}\n{self.read_text(ref.file)}",
+                f"{ref.title}\n{safe_read(ref.file)}",
             )
         for item in self.plot_items:
             related = self._plot_related_label(item)
