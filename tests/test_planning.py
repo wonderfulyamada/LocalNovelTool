@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
-from PySide6.QtCore import QModelIndex, QSettings
+from PySide6.QtCore import QModelIndex, QSettings, QTimer
 from PySide6.QtGui import QKeySequence
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox, QWidget
 
 import local_novel_tool.gui.main_window as main_window_module
+import local_novel_tool.gui.backup_worker as backup_worker_module
 import local_novel_tool.gui.preview_tab as preview_module
 from local_novel_tool.core.api import CoreAPI
 from local_novel_tool.core.models import SearchResult
@@ -982,6 +984,17 @@ def test_manual_backup_uses_default_external_root_and_reports_result(
         lambda _parent, title, text: messages.append((title, text)),
     )
     window.create_backup()
+    assert window.statusBar().currentMessage() == "バックアップ中..."
+    assert not window.backup_action.isEnabled()
+    first_thread = window._backup_thread
+    window.create_backup()
+    assert window._backup_thread is first_thread
+    for _ in range(300):
+        app.processEvents()
+        if not window._backup_is_running():
+            break
+        QTest.qWait(10)
+    assert not window._backup_is_running()
 
     backups = tutorial_parent / "Backups"
     generations = list(backups.rglob("project.json"))
@@ -991,9 +1004,9 @@ def test_manual_backup_uses_default_external_root_and_reports_result(
 
     errors: list[tuple[str, str]] = []
     monkeypatch.setattr(
-        window.api,
-        "create_backup",
-        lambda _root: (_ for _ in ()).throw(OSError("書き込み不能")),
+        backup_worker_module,
+        "create_project_backup",
+        lambda *_args: (_ for _ in ()).throw(OSError("書き込み不能")),
     )
     monkeypatch.setattr(
         main_window_module.QMessageBox,
@@ -1001,7 +1014,89 @@ def test_manual_backup_uses_default_external_root_and_reports_result(
         lambda _parent, title, text: errors.append((title, text)),
     )
     window.create_backup()
+    for _ in range(300):
+        app.processEvents()
+        if not window._backup_is_running():
+            break
+        QTest.qWait(10)
+    assert not window._backup_is_running()
     assert errors == [("バックアップ失敗", "書き込み不能")]
+    window._dirty_sources.clear()
+    window.close()
+    app.processEvents()
+
+
+def test_close_is_ignored_safely_while_backup_is_running(
+    tmp_path: Path, monkeypatch
+) -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class FakeWebView(QWidget):
+        def setHtml(self, _rendered: str) -> None:  # noqa: N802
+            pass
+
+    class CloseEvent:
+        def __init__(self) -> None:
+            self.ignored = False
+
+        def ignore(self) -> None:
+            self.ignored = True
+
+    monkeypatch.setattr(preview_module, "QWebEngineView", FakeWebView)
+    monkeypatch.setattr(
+        main_window_module.MainWindow, "_try_open_initial_project", lambda self: None
+    )
+    tutorial_parent = tmp_path / "Documents" / "LocalNovelTool"
+    monkeypatch.setattr(
+        main_window_module.MainWindow,
+        "_tutorial_parent",
+        staticmethod(lambda: tutorial_parent),
+    )
+    project_parent = tmp_path / "projects"
+    project_parent.mkdir()
+    window = main_window_module.MainWindow()
+    window.api.create_project(project_parent, "実行中終了")
+    window._after_project_loaded()
+    started = threading.Event()
+    release = threading.Event()
+    original_backup = backup_worker_module.create_project_backup
+
+    def slow_backup(project_root: Path, backups_root: Path) -> Path:
+        started.set()
+        assert release.wait(3)
+        return original_backup(project_root, backups_root)
+
+    monkeypatch.setattr(
+        backup_worker_module, "create_project_backup", slow_backup
+    )
+    monkeypatch.setattr(
+        main_window_module.QMessageBox, "information", lambda *_args: None
+    )
+    window.create_backup()
+    for _ in range(100):
+        app.processEvents()
+        if started.is_set():
+            break
+        QTest.qWait(10)
+    assert started.is_set()
+    responsive: list[bool] = []
+    QTimer.singleShot(0, lambda: responsive.append(True))
+    app.processEvents()
+    assert responsive == [True]
+
+    event = CloseEvent()
+    window.closeEvent(event)
+
+    assert event.ignored
+    assert window._backup_is_running()
+    assert "バックアップ中です" in window.statusBar().currentMessage()
+    release.set()
+    for _ in range(300):
+        app.processEvents()
+        if not window._backup_is_running():
+            break
+        QTest.qWait(10)
+    assert not window._backup_is_running()
     window._dirty_sources.clear()
     window.close()
     app.processEvents()
