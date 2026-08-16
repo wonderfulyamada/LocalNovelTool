@@ -42,9 +42,7 @@ class NovelProject:
         ]
 
     @classmethod
-    def create(
-        cls, parent: Path, title: str, with_initial_episode: bool = False
-    ) -> "NovelProject":
+    def create(cls, parent: Path, title: str) -> "NovelProject":
         """Create a new project in a new ``parent / title`` directory."""
         title = title.strip()
         cls._validate_project_name(title)
@@ -66,11 +64,7 @@ class NovelProject:
             for folder in PROJECT_FOLDERS:
                 (root / folder).mkdir()
             project = cls(root, {"title": title, "chapters": [], "references": []})
-            if with_initial_episode:
-                chapter = project.create_chapter("第一章")
-                project.create_episode(chapter.id, "第一話")
-            else:
-                project.save_metadata()
+            project.save_metadata()
             return project
         except Exception:
             # The directory was created by this method and was never pre-existing.

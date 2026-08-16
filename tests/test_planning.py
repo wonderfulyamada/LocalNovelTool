@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from PySide6.QtCore import QModelIndex, QSettings
 from PySide6.QtGui import QKeySequence
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox, QWidget
 
 import local_novel_tool.gui.main_window as main_window_module
@@ -718,7 +719,10 @@ def test_configured_root_new_project_saves_and_reopens_body(
     monkeypatch.setattr(main_window_module, "NewProjectDialog", FakeNewProjectDialog)
     old_root = tmp_path / "old-root"
     old_root.mkdir()
-    old_project = CoreAPI().create_project(old_root, "既存作品", True)
+    old_api = CoreAPI()
+    old_project = old_api.create_project(old_root, "既存作品")
+    old_chapter = old_api.create_chapter("既存章")
+    old_api.create_episode(old_chapter.id, "既存話")
     old_episode = old_project.chapters[0].episodes[0]
     old_project.save_episode_body(old_episode.id, "既存本文")
     old_body = old_project.root / old_episode.body_file
@@ -741,12 +745,38 @@ def test_configured_root_new_project_saves_and_reopens_body(
     assert window.settings.value("last_project", "", str) == str(project.root)
     assert (project.root / "project.json").is_file()
     assert (project.root / "manuscript").is_dir()
-    assert len(project.chapters) == 1
-    assert len(project.chapters[0].episodes) == 1
-    episode = project.chapters[0].episodes[0]
+    assert project.chapters == []
+    assert window.current_episode_id is None
+    assert window.editor_tab.editor.toPlainText() == ""
+    assert window.editor_tab.editor.isReadOnly()
+    assert window.note_tab.editor.toPlainText() == ""
+    assert window.note_tab.editor.isReadOnly()
+    window.editor_tab.editor.setFocus()
+    QTest.keyClicks(window.editor_tab.editor, "must not be entered")
+    assert window.editor_tab.editor.toPlainText() == ""
+
+    reopened_empty = CoreAPI().open_project(project.root)
+    assert reopened_empty.chapters == []
+
+    responses = iter((("自由な章名", True), ("自由な話名", True)))
+    monkeypatch.setattr(
+        main_window_module.QInputDialog,
+        "getText",
+        lambda *_args, **_kwargs: next(responses),
+    )
+    window.add_chapter()
+    assert [chapter.title for chapter in project.chapters] == ["自由な章名"]
+    chapter = project.chapters[0]
+    monkeypatch.setattr(
+        window.tree, "selected_identity", lambda: ("chapter", chapter.id)
+    )
+    window.add_episode()
+    assert [item.title for item in chapter.episodes] == ["自由な話名"]
+    episode = chapter.episodes[0]
     body_path = project.root / episode.body_file
     assert body_path.is_file()
     assert window.current_episode_id == episode.id
+    assert not window.editor_tab.editor.isReadOnly()
 
     window.editor_tab.editor.setPlainText("SAVE_REGRESSION_TEST_20260816")
     assert window.manual_save()
@@ -768,7 +798,7 @@ def test_configured_root_new_project_saves_and_reopens_body(
     app.processEvents()
 
 
-def test_default_root_new_project_creates_episode_and_saves_body(
+def test_default_root_new_project_is_empty_and_reopens(
     tmp_path: Path, monkeypatch
 ) -> None:
     app = QApplication.instance() or QApplication([])
@@ -807,11 +837,13 @@ def test_default_root_new_project_creates_episode_and_saves_body(
     window.new_project()
     project = window.api.project
     assert project is not None
-    episode = project.chapters[0].episodes[0]
-    window.editor_tab.editor.setPlainText("DEFAULT_ROOT_SAVE_TEST")
-    window.editor_tab.timer.timeout.emit()
     assert project.root == (default_root / "デフォルト保存テスト").resolve()
-    assert project.load_episode_body(episode.id) == "DEFAULT_ROOT_SAVE_TEST"
+    assert project.chapters == []
+    assert window.current_episode_id is None
+    assert window.editor_tab.editor.toPlainText() == ""
+    assert window.editor_tab.editor.isReadOnly()
+    reopened = CoreAPI().open_project(project.root)
+    assert reopened.chapters == []
     window._dirty_sources.clear()
     window.close()
     app.processEvents()
