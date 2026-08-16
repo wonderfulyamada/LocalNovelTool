@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,7 @@ from local_novel_tool.gui.sample_project import (
     archive_tutorial_project,
     initialize_sample_project,
     recreate_tutorial_project,
+    tutorial_matches_bundled,
     tutorial_resource_path,
 )
 
@@ -186,3 +188,54 @@ def test_archive_never_overwrites_same_named_destination(tmp_path: Path) -> None
     assert archived.name.endswith("(2)")
     assert marker.read_text(encoding="utf-8") == "上書き禁止"
     assert (archived / "project.json").is_file()
+
+
+def test_tutorial_matches_current_bundled_content_and_ignores_recent_history(
+    tmp_path: Path,
+) -> None:
+    tutorial = tmp_path / "tutorial"
+    shutil.copytree(tutorial_resource_path(), tutorial)
+    assert tutorial_matches_bundled(tutorial)
+
+    metadata_path = tutorial / "project.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["recent_references"] = [metadata["references"][0]["id"]]
+    metadata_path.write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    assert tutorial_matches_bundled(tutorial)
+
+
+@pytest.mark.parametrize("content_kind", ["body", "note", "reference"])
+def test_tutorial_editable_text_change_is_not_initial_state(
+    tmp_path: Path, content_kind: str
+) -> None:
+    tutorial = tmp_path / "tutorial"
+    shutil.copytree(tutorial_resource_path(), tutorial)
+    metadata = json.loads(
+        (tutorial / "project.json").read_text(encoding="utf-8")
+    )
+    episode = metadata["chapters"][0]["episodes"][0]
+    relative = {
+        "body": episode["body_file"],
+        "note": episode["note_file"],
+        "reference": metadata["references"][0]["file"],
+    }[content_kind]
+    path = tutorial / relative
+    path.write_text(path.read_text(encoding="utf-8") + "一", encoding="utf-8")
+
+    assert not tutorial_matches_bundled(tutorial)
+
+
+def test_tutorial_planning_metadata_change_is_not_initial_state(tmp_path: Path) -> None:
+    tutorial = tmp_path / "tutorial"
+    shutil.copytree(tutorial_resource_path(), tutorial)
+    metadata_path = tutorial / "project.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["plot_items"][0]["content"] += "変更"
+    metadata_path.write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    assert not tutorial_matches_bundled(tutorial)

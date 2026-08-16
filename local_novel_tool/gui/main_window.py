@@ -37,6 +37,7 @@ from .sample_project import (
     archive_tutorial_project,
     initialize_sample_project,
     recreate_tutorial_project,
+    tutorial_matches_bundled,
 )
 from .search_tab import SearchTab
 from .timeline_tab import TimelineTab
@@ -374,7 +375,14 @@ class MainWindow(QMainWindow):
         tutorial_root = self._tutorial_parent() / SAMPLE_PROJECT_TITLE
         choice = "recreate"
         if tutorial_root.exists():
-            choice = self._tutorial_recreation_choice()
+            if tutorial_matches_bundled(tutorial_root):
+                choice = (
+                    "recreate"
+                    if self._confirm_recreate_current_tutorial()
+                    else "cancel"
+                )
+            else:
+                choice = self._tutorial_recreation_choice()
         if choice == "cancel":
             return
 
@@ -407,6 +415,24 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage(f"退避先: {archived}")
         except Exception as exc:
             QMessageBox.critical(self, "再作成失敗", str(exc))
+
+    def _confirm_recreate_current_tutorial(self) -> bool:
+        message = QMessageBox(self)
+        message.setIcon(QMessageBox.Icon.Question)
+        message.setWindowTitle("チュートリアルを再作成")
+        message.setText("現在のチュートリアルはすでに最新の初期状態です。")
+        message.setInformativeText("再作成しますか？")
+        message.addButton("再作成", QMessageBox.ButtonRole.AcceptRole)
+        cancel_button = message.addButton(
+            "キャンセル", QMessageBox.ButtonRole.RejectRole
+        )
+        message.setDefaultButton(cancel_button)
+        message.exec()
+        clicked = message.clickedButton()
+        return bool(
+            clicked is not None
+            and message.buttonRole(clicked) == QMessageBox.ButtonRole.AcceptRole
+        )
 
     def _tutorial_recreation_choice(self) -> str:
         message = QMessageBox(self)
