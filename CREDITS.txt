@@ -1,4 +1,4 @@
-LocalNovelTool v0.2.1
+LocalNovelTool v0.2.2
 Copyright (c) 2026 Wonderful Yamada
 
 Built with Python 3.14.5, PySide6/Shiboken6 and Qt 6.11.1, Qt WebEngine and

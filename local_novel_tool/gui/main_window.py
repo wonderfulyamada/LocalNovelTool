@@ -230,9 +230,10 @@ class MainWindow(QMainWindow):
         self.open_folder_action.triggered.connect(self.open_project_folder)
         file_menu.addAction(self.open_folder_action)
         file_menu.addSeparator()
-        settings_action = QAction("設定...", self)
-        settings_action.triggered.connect(self.open_settings)
-        file_menu.addAction(settings_action)
+        self.settings_action = QAction("設定...", self)
+        self.settings_action.setEnabled(True)
+        self.settings_action.triggered.connect(self.open_settings)
+        file_menu.addAction(self.settings_action)
 
         help_menu = self.menuBar().addMenu("ヘルプ")
         tutorial_action = QAction("チュートリアルを再作成", self)
