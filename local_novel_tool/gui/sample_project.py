@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 import sys
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QSettings
@@ -12,6 +13,7 @@ from local_novel_tool.core.project import NovelProject
 
 SAMPLE_INITIALIZED_KEY = "sample_project_initialized"
 SAMPLE_PROJECT_TITLE = "LocalNovelTool チュートリアル"
+SAVED_TUTORIAL_TITLE = f"{SAMPLE_PROJECT_TITLE} - 保存"
 
 
 def tutorial_resource_path() -> Path:
@@ -50,6 +52,54 @@ def initialize_sample_project(
         if copied and target.exists():
             shutil.rmtree(target)
         raise
+
+
+def archive_tutorial_project(
+    tutorial_root: Path,
+    projects_root: Path,
+    saved_at: datetime | None = None,
+) -> Path:
+    """Copy a tutorial to a new, collision-free user project folder."""
+    tutorial_root = tutorial_root.resolve()
+    projects_root = projects_root.resolve()
+    if not (tutorial_root / "project.json").is_file():
+        raise FileNotFoundError("保存するチュートリアルが見つかりません。")
+    if projects_root == tutorial_root or projects_root.is_relative_to(tutorial_root):
+        raise ValueError("チュートリアルの中は保存先に指定できません。")
+    projects_root.mkdir(parents=True, exist_ok=True)
+    if not projects_root.is_dir():
+        raise NotADirectoryError("作品の保存フォルダが無効です。")
+
+    timestamp = (saved_at or datetime.now()).strftime("%Y-%m-%d %H%M")
+    base_name = f"{SAVED_TUTORIAL_TITLE} {timestamp}"
+    number = 1
+    while True:
+        name = base_name if number == 1 else f"{base_name} ({number})"
+        destination = projects_root / name
+        try:
+            shutil.copytree(tutorial_root, destination)
+            break
+        except FileExistsError:
+            number += 1
+        except Exception:
+            if destination.exists():
+                shutil.rmtree(destination, ignore_errors=True)
+            raise
+
+    source_manifest = {
+        (path.relative_to(tutorial_root), path.stat().st_size)
+        for path in tutorial_root.rglob("*")
+        if path.is_file()
+    }
+    destination_manifest = {
+        (path.relative_to(destination), path.stat().st_size)
+        for path in destination.rglob("*")
+        if path.is_file()
+    }
+    if source_manifest != destination_manifest:
+        shutil.rmtree(destination, ignore_errors=True)
+        raise OSError("チュートリアルの退避コピーを確認できませんでした。")
+    return destination
 
 
 def recreate_tutorial_project(

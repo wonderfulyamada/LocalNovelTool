@@ -33,6 +33,8 @@ from .project_tree import ProjectTree
 from .reference_tab import ReferenceTab
 from .sample_project import (
     SAMPLE_INITIALIZED_KEY,
+    SAMPLE_PROJECT_TITLE,
+    archive_tutorial_project,
     initialize_sample_project,
     recreate_tutorial_project,
 )
@@ -316,23 +318,70 @@ class MainWindow(QMainWindow):
             self._set_projects_parent(dialog.selected_root())
 
     def recreate_tutorial(self) -> None:
-        answer = QMessageBox.question(
-            self,
-            "チュートリアルを再作成",
-            "チュートリアル作品を最新版へ戻しますか？\n現在のチュートリアルへの編集は失われます。",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if answer != QMessageBox.StandardButton.Yes:
+        tutorial_root = self._tutorial_parent() / SAMPLE_PROJECT_TITLE
+        choice = "recreate"
+        if tutorial_root.exists():
+            choice = self._tutorial_recreation_choice()
+        if choice == "cancel":
             return
-        self._flush_editors()
+
+        current = self.api.project
+        tutorial_is_current = bool(
+            current and current.root.resolve() == tutorial_root.resolve()
+        )
+        if tutorial_is_current:
+            self._flush_editors()
+
+        archived = None
+        if choice == "archive":
+            try:
+                archived = archive_tutorial_project(
+                    tutorial_root, self._projects_parent()
+                )
+            except Exception as exc:
+                QMessageBox.critical(self, "退避失敗", str(exc))
+                return
+
+        load_recreated = current is None or tutorial_is_current
+        recreate_api = self.api if load_recreated else CoreAPI()
         try:
-            recreate_tutorial_project(self.api, self._tutorial_parent())
+            recreate_tutorial_project(recreate_api, self._tutorial_parent())
             self.settings.setValue(SAMPLE_INITIALIZED_KEY, True)
             self.settings.sync()
-            self._after_project_loaded()
+            if load_recreated:
+                self._after_project_loaded()
+            if archived:
+                self.statusBar().showMessage(f"退避先: {archived}")
         except Exception as exc:
             QMessageBox.critical(self, "再作成失敗", str(exc))
+
+    def _tutorial_recreation_choice(self) -> str:
+        message = QMessageBox(self)
+        message.setIcon(QMessageBox.Icon.Warning)
+        message.setWindowTitle("チュートリアルを再作成")
+        message.setText("チュートリアルを初期状態に戻します。")
+        message.setInformativeText(
+            "現在のチュートリアルに書いた内容は失われます。"
+        )
+        archive_button = message.addButton(
+            "作品として保存してから再作成",
+            QMessageBox.ButtonRole.AcceptRole,
+        )
+        recreate_button = message.addButton(
+            "そのまま再作成",
+            QMessageBox.ButtonRole.DestructiveRole,
+        )
+        cancel_button = message.addButton(
+            "キャンセル", QMessageBox.ButtonRole.RejectRole
+        )
+        message.setDefaultButton(cancel_button)
+        message.exec()
+        clicked = message.clickedButton()
+        if clicked is archive_button:
+            return "archive"
+        if clicked is recreate_button:
+            return "recreate"
+        return "cancel"
 
     def _flush_editors(self) -> None:
         self.editor_tab.flush()
