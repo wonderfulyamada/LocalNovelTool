@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from local_novel_tool.core.api import CoreAPI
 from local_novel_tool.core.project import ProjectContentError, ProjectError
+from local_novel_tool.core.recovery import RecoveryEntry, RecoveryStore
 from local_novel_tool.version import APP_NAME, APP_VERSION, AUTHOR_NAME
 from .backup_worker import BackupWorker
 from .editor_tab import TextEditorTab
@@ -163,6 +164,8 @@ class MainWindow(QMainWindow):
         config_dir = Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppConfigLocation))
         config_dir.mkdir(parents=True, exist_ok=True)
         self.settings = QSettings(str(config_dir / "settings.ini"), QSettings.Format.IniFormat)
+        app_data = Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppLocalDataLocation))
+        self.recovery_store = RecoveryStore(app_data / "Recovery")
 
         self.tree = ProjectTree()
         self.tabs = QTabWidget()
@@ -337,6 +340,7 @@ class MainWindow(QMainWindow):
     def _mark_dirty(self, source: str, changed: bool = True) -> None:
         if changed and self.api.project:
             self._dirty_sources.add(source)
+            self._write_pending_recovery()
 
     def _update_action_states(self) -> None:
         """Apply project/tree dependent action states from the current context."""
@@ -362,6 +366,41 @@ class MainWindow(QMainWindow):
 
     def _mark_saved(self, source: str) -> None:
         self._dirty_sources.discard(source)
+        self._remove_current_recovery(source)
+
+    def _recovery_identity_and_content(self, source: str):
+        if source in ("body", "note") and self.current_episode_id:
+            text = self.editor_tab.editor.toPlainText() if source == "body" else self.note_tab.editor.toPlainText()
+            return self.current_episode_id, text
+        if source == "reference" and self.reference_tab.current_id:
+            return self.reference_tab.current_id, self.reference_tab.editor.toPlainText()
+        if source == "plot" and self.plot_tab.current_id:
+            return self.plot_tab.current_id, {
+                "title": self.plot_tab.title.text(), "content": self.plot_tab.content.toPlainText(),
+                "chapter_id": self.plot_tab.chapter.currentData(), "episode_id": self.plot_tab.episode.currentData(),
+            }
+        if source == "timeline" and self.timeline_tab.current_id:
+            return self.timeline_tab.current_id, {
+                "point": self.timeline_tab.point.text(), "title": self.timeline_tab.title.text(),
+                "content": self.timeline_tab.content.toPlainText(),
+            }
+        return None
+
+    def _write_pending_recovery(self) -> None:
+        if not self.api.project:
+            return
+        for source in tuple(self._dirty_sources):
+            current = self._recovery_identity_and_content(source)
+            if current is not None:
+                item_id, content = current
+                self.recovery_store.save(self.api.project.root, source, item_id, content)
+
+    def _remove_current_recovery(self, source: str) -> None:
+        if not self.api.project:
+            return
+        current = self._recovery_identity_and_content(source)
+        if current is not None:
+            self.recovery_store.remove(self.api.project.root, source, current[0])
 
     def _has_unsaved_changes(self) -> bool:
         return bool(self._dirty_sources)
@@ -634,7 +673,11 @@ class MainWindow(QMainWindow):
     def _backup_finished(self) -> None:
         self._backup_worker = None
         self._backup_thread = None
-        self._update_action_states()
+        try:
+            self._update_action_states()
+        except RuntimeError:
+            # A queued completion may arrive after Qt has destroyed the window.
+            pass
 
     def _load_project(self, root: Path) -> None:
         try:
@@ -662,6 +705,76 @@ class MainWindow(QMainWindow):
         if project.chapters and project.chapters[0].episodes:
             self.tree.select_episode(project.chapters[0].episodes[0].id)
         self._update_action_states()
+        self._offer_recovery()
+
+    def _canonical_recovery_content(self, entry: RecoveryEntry):
+        project = self.api.project
+        if not project:
+            raise ProjectError("作品が開かれていません。")
+        if entry.source == "body":
+            return self.api.load_episode_body(entry.item_id)
+        if entry.source == "note":
+            return self.api.load_episode_note(entry.item_id)
+        if entry.source == "reference":
+            return self.api.load_reference(entry.item_id)
+        if entry.source == "plot":
+            item = project.get_plot_item(entry.item_id)
+            return {"title": item.title, "content": item.content, "chapter_id": item.chapter_id, "episode_id": item.episode_id}
+        if entry.source == "timeline":
+            item = project.get_timeline_item(entry.item_id)
+            return {"point": item.point, "title": item.title, "content": item.content}
+        raise ProjectError("不明なRecoveryデータです。")
+
+    def _confirm_recovery(self, entry: RecoveryEntry) -> bool:
+        message = QMessageBox(self)
+        message.setIcon(QMessageBox.Icon.Question)
+        message.setWindowTitle("編集内容の復旧")
+        message.setText("異常終了時の未保存内容が見つかりました。")
+        message.setInformativeText("復旧しますか？ 正本は復旧内容を保存するまで変更されません。")
+        restore_button = message.addButton("復旧する", QMessageBox.ButtonRole.AcceptRole)
+        message.addButton("無視する", QMessageBox.ButtonRole.RejectRole)
+        message.setDefaultButton(restore_button)
+        message.exec()
+        return message.clickedButton() is restore_button
+
+    def _offer_recovery(self) -> None:
+        if not self.api.project:
+            return
+        for entry in self.recovery_store.load(self.api.project.root):
+            try:
+                current = self._canonical_recovery_content(entry)
+            except (ProjectError, ProjectContentError):
+                continue
+            if current == entry.content:
+                self.recovery_store.remove(self.api.project.root, entry.source, entry.item_id)
+                continue
+            if self._confirm_recovery(entry):
+                self._restore_recovery(entry)
+            else:
+                self.recovery_store.remove(self.api.project.root, entry.source, entry.item_id)
+            break
+
+    def _restore_recovery(self, entry: RecoveryEntry) -> None:
+        if entry.source in ("body", "note"):
+            self.tree.select_episode(entry.item_id)
+            tab = self.editor_tab if entry.source == "body" else self.note_tab
+            tab.set_text(str(entry.content))
+        elif entry.source == "reference":
+            self.open_reference(entry.item_id)
+            self.reference_tab.editor.setPlainText(str(entry.content))
+        elif entry.source == "plot" and isinstance(entry.content, dict):
+            self.open_plot_item(entry.item_id)
+            self.plot_tab.title.setText(str(entry.content.get("title", "")))
+            self.plot_tab.content.setPlainText(str(entry.content.get("content", "")))
+            self.plot_tab._select_combo_data(self.plot_tab.chapter, entry.content.get("chapter_id"))
+            self.plot_tab._select_combo_data(self.plot_tab.episode, entry.content.get("episode_id"))
+        elif entry.source == "timeline" and isinstance(entry.content, dict):
+            self.open_timeline_item(entry.item_id)
+            self.timeline_tab.point.setText(str(entry.content.get("point", "")))
+            self.timeline_tab.title.setText(str(entry.content.get("title", "")))
+            self.timeline_tab.content.setPlainText(str(entry.content.get("content", "")))
+        self._dirty_sources.add(entry.source)
+        self.statusBar().showMessage("未保存の編集内容を復旧しました")
 
     def refresh_tree(self) -> None:
         if self.api.project:
