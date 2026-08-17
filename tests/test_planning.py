@@ -503,7 +503,7 @@ def test_missing_and_initial_tutorial_do_not_create_unnecessary_archive(
     assert choices == [True]
     assert body.read_text(encoding="utf-8").endswith("一")
 
-    window.session_modified = False
+    window._dirty_sources.clear()
     window.close()
     app.processEvents()
 
@@ -763,7 +763,7 @@ def test_configured_root_new_project_saves_and_reopens_body(
     )
     assert old_body.read_text(encoding="utf-8") == "既存本文"
     assert not (old_project.root / "manuscript" / body_path.name).exists()
-    window.session_modified = False
+    window._dirty_sources.clear()
     window.close()
     app.processEvents()
 
@@ -812,7 +812,7 @@ def test_default_root_new_project_creates_episode_and_saves_body(
     window.editor_tab.timer.timeout.emit()
     assert project.root == (default_root / "デフォルト保存テスト").resolve()
     assert project.load_episode_body(episode.id) == "DEFAULT_ROOT_SAVE_TEST"
-    window.session_modified = False
+    window._dirty_sources.clear()
     window.close()
     app.processEvents()
 
@@ -873,7 +873,7 @@ def test_manual_save_writes_body_and_keeps_autosave_active(
     assert window.editor_tab.timer.isActive()
     window.editor_tab.timer.timeout.emit()
     assert project.read_text(episode.body_file) == "手動保存本文・自動保存も有効"
-    window.session_modified = False
+    window._dirty_sources.clear()
     window.close()
     app.processEvents()
 
@@ -913,7 +913,8 @@ def test_failed_manual_save_preserves_existing_body(tmp_path: Path, monkeypatch)
 
     assert project.read_text(episode.body_file) == "保存済み本文"
     assert errors == ["書き込み失敗"]
-    window.session_modified = False
+    assert window._has_unsaved_changes()
+    window._dirty_sources.clear()
     window.close()
     app.processEvents()
 
@@ -930,7 +931,7 @@ class FakeCloseEvent:
         self.ignored = True
 
 
-def test_session_modified_survives_auto_and_manual_save_and_resets_on_open(
+def test_dirty_clears_after_successful_auto_and_manual_save_and_resets_on_open(
     tmp_path: Path, monkeypatch
 ) -> None:
     app = QApplication.instance() or QApplication([])
@@ -950,7 +951,7 @@ def test_session_modified_survives_auto_and_manual_save_and_resets_on_open(
     window._after_project_loaded()
     window.open_episode(episode.id)
 
-    assert not window.session_modified
+    assert not window._has_unsaved_changes()
     unopened_event = FakeCloseEvent()
     monkeypatch.setattr(
         window,
@@ -961,32 +962,39 @@ def test_session_modified_survives_auto_and_manual_save_and_resets_on_open(
     assert unopened_event.accepted
 
     window.editor_tab.editor.setPlainText("本文変更")
-    assert window.session_modified
+    assert window._has_unsaved_changes()
+    assert window.editor_tab.timer.isActive()
     window.editor_tab.timer.timeout.emit()
     assert project.read_text(episode.body_file) == "本文変更"
-    assert window.session_modified
+    assert not window._has_unsaved_changes()
+
+    window.editor_tab.editor.setPlainText("手動保存する本文")
+    assert window._has_unsaved_changes()
     assert window.manual_save()
-    assert window.session_modified
+    assert not window._has_unsaved_changes()
+    saved_event = FakeCloseEvent()
+    window.closeEvent(saved_event)
+    assert saved_event.accepted and not saved_event.ignored
 
-    window.session_modified = False
     window.note_tab.editor.setPlainText("話メモ変更")
-    assert window.session_modified
+    assert window._has_unsaved_changes()
+    window.note_tab.timer.timeout.emit()
+    assert not window._has_unsaved_changes()
 
-    window.session_modified = False
     monkeypatch.setattr(
         main_window_module.QInputDialog,
         "getText",
         lambda *_args, **_kwargs: ("追加章", True),
     )
     window.add_chapter()
-    assert window.session_modified
+    assert not window._has_unsaved_changes()
 
     other_parent = tmp_path / "other"
     other_parent.mkdir()
     other = CoreAPI().create_project(other_parent, "別作品")
     window._load_project(other.root)
-    assert not window.session_modified
-    window.session_modified = False
+    assert not window._has_unsaved_changes()
+    window._dirty_sources.clear()
     window.close()
     app.processEvents()
 
@@ -1018,7 +1026,7 @@ def test_close_save_writes_official_project_and_accepts(
 
     assert event.accepted and not event.ignored
     assert project.read_text(episode.body_file) == "終了時に保存"
-    window.session_modified = False
+    window._dirty_sources.clear()
     window.close()
     app.processEvents()
 
@@ -1039,7 +1047,7 @@ def test_close_cancel_and_save_failure_keep_window_open(
     window = main_window_module.MainWindow()
     window.api.create_project(tmp_path, "終了中止作品")
     window._after_project_loaded()
-    window.session_modified = True
+    window._dirty_sources.add("body")
 
     save_calls = []
     monkeypatch.setattr(window, "manual_save", lambda: save_calls.append(True) or True)
@@ -1055,6 +1063,6 @@ def test_close_cancel_and_save_failure_keep_window_open(
     window.closeEvent(failed)
     assert failed.ignored and not failed.accepted
 
-    window.session_modified = False
+    window._dirty_sources.clear()
     window.close()
     app.processEvents()
