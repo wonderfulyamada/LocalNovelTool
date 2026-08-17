@@ -45,7 +45,14 @@ Copy-Item -LiteralPath (Join-Path $projectRoot "README.md") -Destination $distri
 Copy-Item -LiteralPath (Join-Path $projectRoot "LICENSE.txt") -Destination $distribution
 Copy-Item -LiteralPath (Join-Path $projectRoot "THIRD_PARTY_LICENSES.txt") -Destination $distribution
 Copy-Item -LiteralPath (Join-Path $projectRoot "CREDITS.txt") -Destination $distribution
+Copy-Item -LiteralPath (Join-Path $projectRoot "licenses") -Destination $distribution -Recurse
 $distributionResources = Join-Path $distribution "resources"
 New-Item -ItemType Directory -Path $distributionResources -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $projectRoot "resources\tutorial") -Destination $distributionResources -Recurse
 Copy-Item -LiteralPath (Join-Path $projectRoot "build_assets\app.ico") -Destination (Join-Path $distributionResources "app.ico")
+
+$zipPath = "$distribution.zip"
+if (Test-Path -LiteralPath $zipPath) {
+    Remove-Item -LiteralPath $zipPath -Force
+}
+Compress-Archive -LiteralPath $distribution -DestinationPath $zipPath -CompressionLevel Optimal

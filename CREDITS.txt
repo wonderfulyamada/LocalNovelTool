@@ -1,8 +1,8 @@
-Local Novel Tool v0.2.0
+LocalNovelTool v0.2.0
 Copyright (c) 2026 Wonderful Yamada
 
-Built with:
-- Python
-- Qt for Python / PySide6
+Built with Python 3.14.5, PySide6/Shiboken6 and Qt 6.11.1, Qt WebEngine and
+Chromium 140.0.7339.225, OpenSSL 3.0.20, and Nuitka 4.1.3 runtime support.
 
-第三者ソフトウェアの表記は THIRD_PARTY_LICENSES.txt を参照してください。
+Third-party copyright notices and license texts are in
+THIRD_PARTY_LICENSES.txt and the licenses directory.
