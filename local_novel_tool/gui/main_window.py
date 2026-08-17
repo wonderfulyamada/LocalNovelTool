@@ -530,7 +530,9 @@ class MainWindow(QMainWindow):
                 raise ProjectError(
                     "作品の保存フォルダへ書き込めません。設定を確認してください。"
                 )
-            self.api.create_project(projects_parent, title)
+            self.api.create_project(
+                projects_parent, title, with_initial_episode=True
+            )
             self._after_project_loaded()
         except ProjectError as exc:
             QMessageBox.warning(self, "作成できません", str(exc))
@@ -562,6 +564,9 @@ class MainWindow(QMainWindow):
             return
         self.current_episode_id = None
         self.session_modified = False
+        self.editor_tab.set_text("")
+        self.note_tab.set_text("")
+        self.preview_tab.set_source_text("")
         self.tree.rebuild(project.chapters)
         self.refresh_references()
         self.refresh_planning()
