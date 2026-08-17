@@ -5,4 +5,4 @@ Built with:
 - Python
 - Qt for Python / PySide6
 
-正式配布時は THIRD_PARTY_LICENSES.txt と各ライセンス本文を確認・同梱してください。
+第三者ソフトウェアの表記は THIRD_PARTY_LICENSES.txt を参照してください。
