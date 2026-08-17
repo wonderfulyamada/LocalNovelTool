@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 import sys
 import uuid
@@ -100,6 +101,38 @@ def archive_tutorial_project(
         shutil.rmtree(destination, ignore_errors=True)
         raise OSError("チュートリアルの退避コピーを確認できませんでした。")
     return destination
+
+
+def tutorial_matches_bundled(
+    tutorial_root: Path, source: Path | None = None
+) -> bool:
+    """Compare user-editable tutorial data with the currently bundled tutorial."""
+
+    def snapshot(root: Path) -> tuple[dict, dict[str, bytes]]:
+        with (root / "project.json").open("r", encoding="utf-8") as fp:
+            metadata = json.load(fp)
+        metadata.pop("recent_references", None)
+
+        content_paths: set[str] = set()
+        for chapter in metadata.get("chapters", []):
+            for episode in chapter.get("episodes", []):
+                content_paths.add(str(episode["body_file"]))
+                content_paths.add(str(episode["note_file"]))
+        for reference in metadata.get("references", []):
+            content_paths.add(str(reference["file"]))
+
+        contents = {
+            relative: (root / relative).read_bytes()
+            for relative in sorted(content_paths)
+        }
+        return metadata, contents
+
+    try:
+        return snapshot(tutorial_root.resolve()) == snapshot(
+            (source or tutorial_resource_path()).resolve()
+        )
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return False
 
 
 def recreate_tutorial_project(

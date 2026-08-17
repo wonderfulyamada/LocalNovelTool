@@ -378,7 +378,8 @@ def test_tutorial_menu_archives_and_reloads_bundled_original(
     tutorial = initialize_sample_project(window.api, window.settings, tutorial_parent)
     assert tutorial is not None
     window._after_project_loaded()
-    edited = tutorial.root / "GUI編集内容.txt"
+    edited_relative = tutorial.chapters[0].episodes[0].body_file
+    edited = tutorial.root / edited_relative
     edited.write_text("退避する内容", encoding="utf-8")
 
     monkeypatch.setattr(window, "_tutorial_recreation_choice", lambda: "archive")
@@ -391,8 +392,7 @@ def test_tutorial_menu_archives_and_reloads_bundled_original(
 
     archives = list(projects_root.iterdir())
     assert len(archives) == 1
-    assert (archives[0] / "GUI編集内容.txt").read_text(encoding="utf-8") == "退避する内容"
-    assert not edited.exists()
+    assert (archives[0] / edited_relative).read_text(encoding="utf-8") == "退避する内容"
     assert window.api.project is not None
     assert window.api.project.root == (tutorial_parent / SAMPLE_PROJECT_TITLE).resolve()
     source = tutorial_resource_path()
@@ -408,11 +408,12 @@ def test_tutorial_menu_archives_and_reloads_bundled_original(
     }
     assert recreated_files == source_files
 
-    marker = window.api.project.root / "そのまま再作成.txt"
-    marker.write_text("削除対象", encoding="utf-8")
+    direct_relative = window.api.project.chapters[0].episodes[0].body_file
+    direct_body = window.api.project.root / direct_relative
+    direct_body.write_text("削除対象", encoding="utf-8")
     monkeypatch.setattr(window, "_tutorial_recreation_choice", lambda: "recreate")
     action.trigger()
-    assert not marker.exists()
+    assert direct_body.read_bytes() == (source / direct_relative).read_bytes()
     assert list(projects_root.iterdir()) == archives
     window.close()
     app.processEvents()
@@ -428,6 +429,91 @@ def test_tutorial_choice_maps_qt_button_roles() -> None:
     assert main_window_module.MainWindow._tutorial_choice_for_role(
         QMessageBox.ButtonRole.RejectRole
     ) == "cancel"
+
+
+def test_missing_and_initial_tutorial_do_not_create_unnecessary_archive(
+    tmp_path: Path, monkeypatch
+) -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class FakeWebView(QWidget):
+        def setHtml(self, _rendered: str) -> None:  # noqa: N802
+            pass
+
+    monkeypatch.setattr(preview_module, "QWebEngineView", FakeWebView)
+    monkeypatch.setattr(
+        main_window_module.MainWindow, "_try_open_initial_project", lambda self: None
+    )
+    tutorial_parent = tmp_path / "Documents" / "LocalNovelTool"
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    monkeypatch.setattr(
+        main_window_module.MainWindow,
+        "_tutorial_parent",
+        staticmethod(lambda: tutorial_parent),
+    )
+    window = main_window_module.MainWindow()
+    window.settings = QSettings(
+        str(tmp_path / "settings-initial-tutorial.ini"), QSettings.Format.IniFormat
+    )
+    window._set_projects_parent(projects_root)
+    monkeypatch.setattr(
+        window,
+        "_tutorial_recreation_choice",
+        lambda: (_ for _ in ()).throw(AssertionError("編集済み三択が表示されました")),
+    )
+
+    window.recreate_tutorial()
+    tutorial_root = tutorial_parent / SAMPLE_PROJECT_TITLE
+    assert (tutorial_root / "project.json").is_file()
+    assert list(projects_root.iterdir()) == []
+
+    before = {
+        path.relative_to(tutorial_root): path.read_bytes()
+        for path in tutorial_root.rglob("*")
+        if path.is_file()
+    }
+    monkeypatch.setattr(window, "_confirm_recreate_current_tutorial", lambda: False)
+    window.recreate_tutorial()
+    after_cancel = {
+        path.relative_to(tutorial_root): path.read_bytes()
+        for path in tutorial_root.rglob("*")
+        if path.is_file()
+    }
+    assert after_cancel == before
+    assert list(projects_root.iterdir()) == []
+
+    monkeypatch.setattr(window, "_confirm_recreate_current_tutorial", lambda: True)
+    monkeypatch.setattr(
+        main_window_module,
+        "archive_tutorial_project",
+        lambda *_args: (_ for _ in ()).throw(
+            AssertionError("初期状態が退避されました")
+        ),
+    )
+    window.recreate_tutorial()
+    assert list(projects_root.iterdir()) == []
+    assert main_window_module.tutorial_matches_bundled(tutorial_root)
+
+    relative = window.api.project.chapters[0].episodes[0].body_file
+    body = tutorial_root / relative
+    body.write_text(body.read_text(encoding="utf-8") + "一", encoding="utf-8")
+    choices = []
+    monkeypatch.setattr(
+        window, "_confirm_recreate_current_tutorial", lambda: (_ for _ in ()).throw(
+            AssertionError("編集済みが初期状態扱いされました")
+        )
+    )
+    monkeypatch.setattr(
+        window, "_tutorial_recreation_choice", lambda: choices.append(True) or "cancel"
+    )
+    window.recreate_tutorial()
+    assert choices == [True]
+    assert body.read_text(encoding="utf-8").endswith("一")
+
+    window.session_modified = False
+    window.close()
+    app.processEvents()
 
 
 def test_new_project_dialog_destination_tracks_trimmed_title(tmp_path: Path) -> None:
