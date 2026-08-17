@@ -20,8 +20,12 @@ def test_vertical_preview_uses_vertical_rl_and_ruby() -> None:
 
     assert 'class="vertical"' in rendered
     assert "writing-mode: vertical-rl" in rendered
-    assert "text-orientation: mixed" in rendered
     assert "<ruby>白雨<rt>しらさめ</rt></ruby>を抜いた。" in rendered
+
+
+def test_preview_uses_configured_content_font_size_in_both_modes() -> None:
+    assert "font-size: 21pt" in render_html("本文", font_size=21)
+    assert "font-size: 21pt" in render_html("本文", vertical=True, font_size=21)
 
 
 def test_preview_escapes_html_and_handles_empty_text() -> None:

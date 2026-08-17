@@ -620,7 +620,7 @@ def test_project_storage_settings_are_available_without_any_project(
     custom_root.mkdir()
 
     class FakeSettingsDialog:
-        def __init__(self, _current, _default, _parent) -> None:
+        def __init__(self, _current, _default, _parent, **_kwargs) -> None:
             pass
 
         def exec(self) -> QDialog.DialogCode:

@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QSpinBox,
     QSplitter,
     QTabWidget,
     QToolBar,
@@ -46,6 +47,8 @@ from .timeline_tab import TimelineTab
 
 
 PROJECTS_ROOT_KEY = "projects_root"
+CONTENT_FONT_SIZE_KEY = "content_font_size"
+DEFAULT_CONTENT_FONT_SIZE = 14
 
 
 class NewProjectDialog(QDialog):
@@ -83,7 +86,7 @@ class NewProjectDialog(QDialog):
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, projects_root: Path, default_root: Path, parent=None) -> None:
+    def __init__(self, projects_root: Path, default_root: Path, parent=None, content_font_size: int = DEFAULT_CONTENT_FONT_SIZE) -> None:
         super().__init__(parent)
         self.default_root = default_root
         self.setWindowTitle("設定")
@@ -94,6 +97,10 @@ class SettingsDialog(QDialog):
         reset_button = QPushButton("デフォルトに戻す", self)
         select_button.clicked.connect(self.select_projects_root)
         reset_button.clicked.connect(self.reset_projects_root)
+        self.font_size_spin = QSpinBox(self)
+        self.font_size_spin.setRange(10, 32)
+        self.font_size_spin.setSuffix(" pt")
+        self.font_size_spin.setValue(max(10, min(32, content_font_size)))
 
         path_row = QHBoxLayout()
         path_row.addWidget(self.path_edit, 1)
@@ -114,10 +121,15 @@ class SettingsDialog(QDialog):
         layout.addWidget(QLabel("作品の保存フォルダ", self))
         layout.addLayout(path_row)
         layout.addLayout(reset_row)
+        layout.addWidget(QLabel("文章の文字サイズ", self))
+        layout.addWidget(self.font_size_spin)
         layout.addWidget(buttons)
 
     def selected_root(self) -> Path:
         return Path(self.path_edit.text())
+
+    def content_font_size(self) -> int:
+        return self.font_size_spin.value()
 
     def select_projects_root(self) -> None:
         folder = QFileDialog.getExistingDirectory(
@@ -191,6 +203,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.search_tab, "文章検索")
         self.tabs.addTab(self.reference_tab, "資料")
         self._set_episode_editors_enabled(False)
+        self._apply_content_font_size(self._content_font_size())
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self.tree)
@@ -443,16 +456,34 @@ class MainWindow(QMainWindow):
         configured = self.settings.value(PROJECTS_ROOT_KEY, "", str).strip()
         return Path(configured) if configured else self._default_projects_parent()
 
+    def _content_font_size(self) -> int:
+        raw = self.settings.value(CONTENT_FONT_SIZE_KEY, DEFAULT_CONTENT_FONT_SIZE)
+        try:
+            return max(10, min(32, int(raw)))
+        except (TypeError, ValueError):
+            return DEFAULT_CONTENT_FONT_SIZE
+
+    def _apply_content_font_size(self, size: int) -> None:
+        size = max(10, min(32, size))
+        for editor in (self.editor_tab.editor, self.note_tab.editor, self.reference_tab.editor, self.plot_tab.content, self.timeline_tab.content):
+            font = editor.font()
+            font.setPointSize(size)
+            editor.setFont(font)
+        self.preview_tab.set_content_font_size(size)
+
     def _set_projects_parent(self, path: Path) -> None:
         self.settings.setValue(PROJECTS_ROOT_KEY, str(path))
         self.settings.sync()
 
     def open_settings(self) -> None:
         dialog = SettingsDialog(
-            self._projects_parent(), self._default_projects_parent(), self
+            self._projects_parent(), self._default_projects_parent(), self, content_font_size=self._content_font_size()
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._set_projects_parent(dialog.selected_root())
+            self.settings.setValue(CONTENT_FONT_SIZE_KEY, dialog.content_font_size())
+            self.settings.sync()
+            self._apply_content_font_size(dialog.content_font_size())
 
     def recreate_tutorial(self) -> None:
         tutorial_root = self._tutorial_parent() / SAMPLE_PROJECT_TITLE
