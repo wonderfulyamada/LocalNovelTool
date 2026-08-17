@@ -9,7 +9,8 @@
 5. `dist\LocalNovelTool_v0.2.0` をZIP化する。
 
 `pysidedeploy.spec` は `standalone` モードで保存済み。ビルドスクリプトは
-`pyside6-deploy` を実行後、READMEとライセンス表記を完成フォルダへ同梱する。
+`pyside6-deploy` を実行後、README、ライセンス表記、`resources/tutorial`を
+完成フォルダへ同梱する。
 
 確認項目:
 - Python未導入PCで起動

@@ -9,13 +9,10 @@ from PySide6.QtCore import QSettings
 from local_novel_tool.core.api import CoreAPI
 from local_novel_tool.gui.sample_project import (
     SAMPLE_INITIALIZED_KEY,
-    SAMPLE_PLOTS,
     SAMPLE_PROJECT_TITLE,
-    SAMPLE_REFERENCES,
-    SAMPLE_TIMELINE,
-    TUTORIAL_CHAPTERS,
-    TUTORIAL_NOTE,
     initialize_sample_project,
+    recreate_tutorial_project,
+    tutorial_resource_path,
 )
 
 
@@ -23,57 +20,51 @@ def make_settings(path: Path) -> QSettings:
     return QSettings(str(path / "settings.ini"), QSettings.Format.IniFormat)
 
 
-def test_first_launch_creates_complete_sample_project(tmp_path: Path) -> None:
-    settings = make_settings(tmp_path)
-    api = CoreAPI()
-
-    project = initialize_sample_project(api, settings, tmp_path / "作品 保存先")
-
+def assert_tutorial_contents(api: CoreAPI) -> None:
+    project = api.project
     assert project is not None
     assert project.title == SAMPLE_PROJECT_TITLE
-    assert project.root == (tmp_path / "作品 保存先" / SAMPLE_PROJECT_TITLE).resolve()
-    assert settings.value(SAMPLE_INITIALIZED_KEY, False, bool)
     assert [chapter.title for chapter in project.chapters] == [
         "まず触ってみよう",
         "設定を整理しよう",
         "練習用の章",
     ]
-    assert [
-        [episode.title for episode in chapter.episodes]
-        for chapter in project.chapters
-    ] == [
-        [title for title, _body in TUTORIAL_CHAPTERS[0][1]],
-        [title for title, _body in TUTORIAL_CHAPTERS[1][1]],
-        [title for title, _body in TUTORIAL_CHAPTERS[2][1]],
+    assert [len(chapter.episodes) for chapter in project.chapters] == [4, 4, 1]
+    assert [reference.title for reference in project.references] == [
+        "サンプル主人公",
+        "白雨",
+        "サンプルの町",
+        "自由メモの例",
     ]
-    for chapter, (_chapter_title, expected_episodes) in zip(
-        project.chapters, TUTORIAL_CHAPTERS
-    ):
-        for episode, (_title, expected_body) in zip(
-            chapter.episodes, expected_episodes
-        ):
-            assert api.load_episode_body(episode.id) == expected_body
-    practice = project.chapters[2]
-    assert practice.title == "練習用の章"
-    assert [episode.title for episode in practice.episodes] == [
-        "この話を動かしてみよう"
-    ]
-    note_episode = project.chapters[0].episodes[2]
-    assert api.load_episode_note(note_episode.id) == TUTORIAL_NOTE
-    assert [
-        (reference.category, reference.title, api.load_reference(reference.id))
-        for reference in project.references
-    ] == list(SAMPLE_REFERENCES)
-    assert [(item.title, item.content) for item in project.plot_items] == list(
-        SAMPLE_PLOTS
-    )
-    assert [
-        (item.point, item.title, item.content) for item in project.timeline_items
-    ] == list(SAMPLE_TIMELINE)
+    assert len(project.plot_items) == 3
+    assert len(project.timeline_items) == 3
+    hit_kinds = {result.kind for result in api.search("白雨")}
+    assert {"episode", "reference"} <= hit_kinds
 
-    white_rain_hits = api.search("白雨")
-    assert "episode" in {result.kind for result in white_rain_hits}
-    assert "reference" in {result.kind for result in white_rain_hits}
+
+def test_bundled_tutorial_is_a_readable_project(tmp_path: Path) -> None:
+    resource = tutorial_resource_path()
+    assert resource.name == "tutorial"
+    copied_resource = tmp_path / "tutorial"
+    shutil.copytree(resource, copied_resource)
+    api = CoreAPI()
+    api.open_project(copied_resource)
+    assert_tutorial_contents(api)
+
+
+def test_first_launch_copies_complete_tutorial_project(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    api = CoreAPI()
+    source = tutorial_resource_path()
+    source_metadata = (source / "project.json").read_bytes()
+
+    project = initialize_sample_project(api, settings, tmp_path / "作品 保存先")
+
+    assert project is not None
+    assert project.root == (tmp_path / "作品 保存先" / SAMPLE_PROJECT_TITLE).resolve()
+    assert settings.value(SAMPLE_INITIALIZED_KEY, False, bool)
+    assert_tutorial_contents(api)
+    assert (source / "project.json").read_bytes() == source_metadata
 
 
 def test_initialized_sample_is_not_created_again(tmp_path: Path, monkeypatch) -> None:
@@ -81,10 +72,10 @@ def test_initialized_sample_is_not_created_again(tmp_path: Path, monkeypatch) ->
     settings.setValue(SAMPLE_INITIALIZED_KEY, True)
     api = CoreAPI()
 
-    def unexpected_create(_parent: Path, _title: str):
+    def unexpected_copy(*_args, **_kwargs):
         raise AssertionError("sample was recreated")
 
-    monkeypatch.setattr(api, "create_project", unexpected_create)
+    monkeypatch.setattr(shutil, "copytree", unexpected_copy)
     assert initialize_sample_project(api, settings, tmp_path / "保存先") is None
 
 
@@ -102,17 +93,52 @@ def test_deleted_sample_is_not_recreated(tmp_path: Path) -> None:
 
 
 def test_failed_sample_creation_leaves_no_project_or_flag(tmp_path: Path) -> None:
-    class FailingAPI(CoreAPI):
-        def save_episode_body(self, episode_id: str, text: str) -> None:
-            raise RuntimeError("sample creation failed")
-
     settings = make_settings(tmp_path)
     parent = tmp_path / "保存先"
-    api = FailingAPI()
+    broken_source = tmp_path / "壊れた原本"
+    broken_source.mkdir()
+    (broken_source / "project.json").write_text("{broken", encoding="utf-8")
+    api = CoreAPI()
 
-    with pytest.raises(RuntimeError, match="sample creation failed"):
-        initialize_sample_project(api, settings, parent)
+    with pytest.raises(Exception):
+        initialize_sample_project(api, settings, parent, broken_source)
 
     assert not settings.value(SAMPLE_INITIALIZED_KEY, False, bool)
     assert not (parent / SAMPLE_PROJECT_TITLE).exists()
     assert api.project is None
+
+
+def test_recreate_tutorial_replaces_only_tutorial(tmp_path: Path) -> None:
+    parent = tmp_path / "作品"
+    settings = make_settings(tmp_path)
+    api = CoreAPI()
+    tutorial = initialize_sample_project(api, settings, parent)
+    assert tutorial is not None
+    edited_file = tutorial.root / tutorial.chapters[0].episodes[0].body_file
+    edited_file.write_text("ユーザー編集", encoding="utf-8")
+
+    normal_api = CoreAPI()
+    normal = normal_api.create_project(parent, "通常作品")
+    marker = normal.root / "残す.txt"
+    marker.write_text("保護対象", encoding="utf-8")
+
+    recreated = recreate_tutorial_project(api, parent)
+    assert recreated.root == tutorial.root
+    assert edited_file.read_text(encoding="utf-8") != "ユーザー編集"
+    assert marker.read_text(encoding="utf-8") == "保護対象"
+    assert_tutorial_contents(api)
+
+
+def test_failed_recreate_preserves_existing_tutorial(tmp_path: Path) -> None:
+    parent = tmp_path / "作品"
+    settings = make_settings(tmp_path)
+    api = CoreAPI()
+    tutorial = initialize_sample_project(api, settings, parent)
+    assert tutorial is not None
+    marker = tutorial.root / "編集済み.txt"
+    marker.write_text("維持", encoding="utf-8")
+
+    with pytest.raises(FileNotFoundError):
+        recreate_tutorial_project(api, parent, tmp_path / "存在しない原本")
+
+    assert marker.read_text(encoding="utf-8") == "維持"

@@ -168,7 +168,13 @@ def test_search_result_opens_plot_and_timeline_tabs(tmp_path: Path, monkeypatch)
     tab_style = window.tabs.tabBar().styleSheet()
     assert "min-height: 24px" in tab_style
     assert "padding: 6px 14px" in tab_style
+    assert "QTabBar::tab:selected" in tab_style
+    assert "font-weight: bold" in tab_style
+    assert "border-bottom: 2px solid palette(highlight)" in tab_style
     assert window.tabs.tabBar().usesScrollButtons()
+    assert "チュートリアルを再作成" in [
+        action.text() for action in window.findChildren(main_window_module.QAction)
+    ]
 
     window.open_search_result(
         SearchResult("plot", plot.id, plot.title, "", 1, "冒険開始")
@@ -183,6 +189,42 @@ def test_search_result_opens_plot_and_timeline_tabs(tmp_path: Path, monkeypatch)
     )
     assert window.tabs.currentWidget() is window.timeline_tab
     assert window.timeline_tab.current_id == timeline.id
+
+    monkeypatch.setattr(
+        main_window_module.QMessageBox,
+        "question",
+        lambda *_args, **_kwargs: main_window_module.QMessageBox.StandardButton.No,
+    )
+    monkeypatch.setattr(
+        main_window_module,
+        "recreate_tutorial_project",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("cancelled recreation ran")
+        ),
+    )
+    window.recreate_tutorial()
+
+    recreated: list[Path] = []
+    monkeypatch.setattr(
+        main_window_module.QMessageBox,
+        "question",
+        lambda *_args, **_kwargs: main_window_module.QMessageBox.StandardButton.Yes,
+    )
+    monkeypatch.setattr(
+        main_window_module.MainWindow,
+        "_tutorial_parent",
+        staticmethod(lambda: tmp_path / "ドキュメント"),
+    )
+    monkeypatch.setattr(
+        main_window_module,
+        "recreate_tutorial_project",
+        lambda _api, parent: recreated.append(parent),
+    )
+    window.recreate_tutorial()
+    assert recreated == [tmp_path / "ドキュメント"]
+    assert window.settings.value(
+        main_window_module.SAMPLE_INITIALIZED_KEY, False, bool
+    )
     window.close()
     app.processEvents()
 
