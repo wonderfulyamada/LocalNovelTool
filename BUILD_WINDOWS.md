@@ -7,7 +7,7 @@
 3. `.\.venv\Scripts\python.exe -m pytest -q` を実行する。
 4. `.\build_windows.ps1` を実行する。
 5. `dist\LocalNovelTool` を、トップレベルフォルダ名を維持したまま
-   `dist\LocalNovelTool_v0.2.2.zip` へZIP化する。
+   `dist\LocalNovelTool_v0.3.0.zip` へZIP化する。
 
 `pysidedeploy.spec` は `standalone` モードで保存済み。ビルドスクリプトは
 `pyside6-deploy` を実行後、READMEとライセンス表記を完成フォルダへ同梱する。
