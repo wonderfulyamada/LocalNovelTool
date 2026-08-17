@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from PySide6.QtCore import QModelIndex, QSettings
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QDialog, QWidget
 
 import local_novel_tool.gui.main_window as main_window_module
 import local_novel_tool.gui.preview_tab as preview_module
@@ -245,11 +245,17 @@ def test_new_project_uses_dedicated_projects_folder(tmp_path: Path, monkeypatch)
         "_tutorial_parent",
         staticmethod(lambda: tmp_path / "Documents" / "LocalNovelTool"),
     )
-    monkeypatch.setattr(
-        main_window_module.QInputDialog,
-        "getText",
-        lambda *_args, **_kwargs: ("新しい作品", True),
-    )
+    class FakeNewProjectDialog:
+        def __init__(self, projects_parent, _parent) -> None:
+            assert projects_parent == tmp_path / "Documents" / "LocalNovelTool" / "作品"
+
+        def exec(self) -> QDialog.DialogCode:
+            return QDialog.DialogCode.Accepted
+
+        def project_title(self) -> str:
+            return "新しい作品"
+
+    monkeypatch.setattr(main_window_module, "NewProjectDialog", FakeNewProjectDialog)
     monkeypatch.setattr(
         main_window_module.QFileDialog,
         "getExistingDirectory",
@@ -271,6 +277,51 @@ def test_new_project_uses_dedicated_projects_folder(tmp_path: Path, monkeypatch)
     for folder in ("manuscript", "episode_notes", "references", "backups"):
         assert (root / folder).is_dir()
 
+    window.close()
+    app.processEvents()
+
+
+def test_new_project_dialog_destination_tracks_trimmed_title(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    parent = tmp_path / "Documents" / "LocalNovelTool" / "作品"
+    dialog = main_window_module.NewProjectDialog(parent)
+
+    dialog.title_edit.setText("  私の小説  ")
+
+    assert dialog.project_title() == "私の小説"
+    assert dialog.destination_label.text() == str(parent / "私の小説")
+    dialog.close()
+    app.processEvents()
+
+
+def test_open_project_starts_in_projects_folder(tmp_path: Path, monkeypatch) -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class FakeWebView(QWidget):
+        def setHtml(self, _rendered: str) -> None:  # noqa: N802
+            pass
+
+    monkeypatch.setattr(preview_module, "QWebEngineView", FakeWebView)
+    monkeypatch.setattr(
+        main_window_module.MainWindow, "_try_open_initial_project", lambda self: None
+    )
+    projects_parent = tmp_path / "Documents" / "LocalNovelTool" / "作品"
+    monkeypatch.setattr(
+        main_window_module.MainWindow,
+        "_projects_parent",
+        classmethod(lambda cls: projects_parent),
+    )
+    calls = []
+    monkeypatch.setattr(
+        main_window_module.QFileDialog,
+        "getExistingDirectory",
+        lambda *args: calls.append(args) or "",
+    )
+
+    window = main_window_module.MainWindow()
+    window.open_project()
+
+    assert calls[0][2] == str(projects_parent)
     window.close()
     app.processEvents()
 
