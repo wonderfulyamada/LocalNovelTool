@@ -156,6 +156,20 @@ def test_search_result_opens_plot_and_timeline_tabs(tmp_path: Path, monkeypatch)
     timeline = window.api.create_timeline_item("現在", "出会い", "内容")
     window._after_project_loaded()
 
+    assert [window.tabs.tabText(index) for index in range(window.tabs.count())] == [
+        "本文",
+        "プレビュー",
+        "話メモ",
+        "展開",
+        "時系列",
+        "文章検索",
+        "資料",
+    ]
+    tab_style = window.tabs.tabBar().styleSheet()
+    assert "min-height: 24px" in tab_style
+    assert "padding: 6px 14px" in tab_style
+    assert window.tabs.tabBar().usesScrollButtons()
+
     window.open_search_result(
         SearchResult("plot", plot.id, plot.title, "", 1, "冒険開始")
     )

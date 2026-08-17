@@ -40,6 +40,11 @@ class MainWindow(QMainWindow):
 
         self.tree = ProjectTree()
         self.tabs = QTabWidget()
+        self.tabs.tabBar().setStyleSheet(
+            "QTabBar::tab { min-height: 24px; padding: 6px 14px; font-size: 10pt; }"
+        )
+        self.tabs.tabBar().setUsesScrollButtons(True)
+        self.tabs.tabBar().setElideMode(Qt.TextElideMode.ElideRight)
         self.editor_tab = TextEditorTab(show_ruby_button=True)
         self.preview_tab = PreviewTab()
         self.note_tab = TextEditorTab()

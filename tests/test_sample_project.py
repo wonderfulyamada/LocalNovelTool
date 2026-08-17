@@ -36,6 +36,7 @@ def test_first_launch_creates_complete_sample_project(tmp_path: Path) -> None:
     assert [chapter.title for chapter in project.chapters] == [
         "まず触ってみよう",
         "設定を整理しよう",
+        "練習用の章",
     ]
     assert [
         [episode.title for episode in chapter.episodes]
@@ -43,6 +44,7 @@ def test_first_launch_creates_complete_sample_project(tmp_path: Path) -> None:
     ] == [
         [title for title, _body in TUTORIAL_CHAPTERS[0][1]],
         [title for title, _body in TUTORIAL_CHAPTERS[1][1]],
+        [title for title, _body in TUTORIAL_CHAPTERS[2][1]],
     ]
     for chapter, (_chapter_title, expected_episodes) in zip(
         project.chapters, TUTORIAL_CHAPTERS
@@ -51,6 +53,11 @@ def test_first_launch_creates_complete_sample_project(tmp_path: Path) -> None:
             chapter.episodes, expected_episodes
         ):
             assert api.load_episode_body(episode.id) == expected_body
+    practice = project.chapters[2]
+    assert practice.title == "練習用の章"
+    assert [episode.title for episode in practice.episodes] == [
+        "この話を動かしてみよう"
+    ]
     note_episode = project.chapters[0].episodes[2]
     assert api.load_episode_note(note_episode.id) == TUTORIAL_NOTE
     assert [
