@@ -58,3 +58,40 @@ def test_create_project_refuses_existing_same_name_folder(tmp_path: Path) -> Non
 def test_create_project_rejects_invalid_folder_names(tmp_path: Path, title: str) -> None:
     with pytest.raises(ProjectError):
         CoreAPI().create_project(tmp_path, title)
+
+
+def test_search_keeps_existing_scope_order_lines_and_excerpts(tmp_path: Path) -> None:
+    api = CoreAPI()
+    api.create_project(tmp_path, "検索順序")
+    chapter = api.create_chapter("章")
+    first = api.create_episode(chapter.id, "一話")
+    second = api.create_episode(chapter.id, "二話")
+    api.save_episode_body(first.id, "前置き\nNeedle 本文一")
+    api.save_episode_note(first.id, "needle メモ一")
+    api.save_episode_body(second.id, "NEEDLE 本文二")
+    api.save_episode_note(second.id, "前置き\nneedle メモ二")
+    reference = api.create_reference("世界観", "資料")
+    api.save_reference(reference.id, "needle 資料")
+    plot = api.create_plot_item("展開", "needle プロット")
+    timeline = api.create_timeline_item("一日目", "時系列", "needle 時系列")
+
+    results = api.search("nEeDlE")
+
+    assert [(item.kind, item.source_id, item.line) for item in results] == [
+        ("episode", first.id, 2),
+        ("episode_note", first.id, 1),
+        ("episode", second.id, 1),
+        ("episode_note", second.id, 2),
+        ("reference", reference.id, 2),
+        ("plot", plot.id, 2),
+        ("timeline", timeline.id, 2),
+    ]
+    assert [item.excerpt for item in results] == [
+        "Needle 本文一",
+        "needle メモ一",
+        "NEEDLE 本文二",
+        "needle メモ二",
+        "needle 資料",
+        "needle プロット",
+        "needle 時系列",
+    ]

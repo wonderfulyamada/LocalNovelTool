@@ -4,6 +4,7 @@ import json
 import shutil
 import uuid
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -437,12 +438,11 @@ class NovelProject:
             return []
         results: list[SearchResult] = []
 
-        def safe_read(relative_path: str) -> str:
+        def safe_read(relative_path: str) -> tuple[str, ProjectContentError | None]:
             try:
-                return self.read_text(relative_path)
+                return self.read_text(relative_path), None
             except ProjectContentError as exc:
-                self.last_content_errors.append(exc)
-                return ""
+                return "", exc
 
         def scan(kind: str, source_id: str, title: str, category: str, text: str) -> None:
             for line_no, line in enumerate(text.splitlines(), start=1):
@@ -458,30 +458,46 @@ class NovelProject:
                         )
                     )
 
+        file_sources: list[tuple[str, str, str, str, str, bool]] = []
         for chapter in self.chapters:
             for episode in chapter.episodes:
-                scan(
-                    "episode",
-                    episode.id,
-                    episode.title,
-                    chapter.title,
-                    safe_read(episode.body_file),
+                file_sources.append(
+                    (
+                        "episode",
+                        episode.id,
+                        episode.title,
+                        chapter.title,
+                        episode.body_file,
+                        False,
+                    )
                 )
-                scan(
-                    "episode_note",
-                    episode.id,
-                    f"{episode.title} / 話メモ",
-                    chapter.title,
-                    safe_read(episode.note_file),
+                file_sources.append(
+                    (
+                        "episode_note",
+                        episode.id,
+                        f"{episode.title} / 話メモ",
+                        chapter.title,
+                        episode.note_file,
+                        False,
+                    )
                 )
         for ref in self.references:
-            scan(
-                "reference",
-                ref.id,
-                ref.title,
-                ref.category,
-                f"{ref.title}\n{safe_read(ref.file)}",
+            file_sources.append(
+                ("reference", ref.id, ref.title, ref.category, ref.file, True)
             )
+
+        if file_sources:
+            with ThreadPoolExecutor(max_workers=min(16, len(file_sources))) as executor:
+                loaded = executor.map(
+                    safe_read, (source[4] for source in file_sources)
+                )
+                for source, (text, error) in zip(file_sources, loaded):
+                    kind, source_id, title, category, _path, prefix_title = source
+                    if error is not None:
+                        self.last_content_errors.append(error)
+                    if prefix_title:
+                        text = f"{title}\n{text}"
+                    scan(kind, source_id, title, category, text)
         for item in self.plot_items:
             related = self._plot_related_label(item)
             scan("plot", item.id, item.title, related, f"{item.title}\n{item.content}")

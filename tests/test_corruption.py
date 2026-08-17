@@ -160,3 +160,5 @@ def test_missing_content_error_names_the_problem_file(tmp_path: Path) -> None:
     errors = api.content_errors()
     assert len(errors) == 3
     assert all("見つかりません" in str(error) for error in errors)
+    for (path, _load), error in zip(targets, errors):
+        assert str(path.resolve()) in str(error)
