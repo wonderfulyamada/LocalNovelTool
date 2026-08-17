@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from local_novel_tool.core.api import CoreAPI
 from local_novel_tool.gui.sample_project import (
     SAMPLE_INITIALIZED_KEY,
     SAMPLE_PROJECT_TITLE,
+    archive_tutorial_project,
     initialize_sample_project,
     recreate_tutorial_project,
     tutorial_resource_path,
@@ -142,3 +144,45 @@ def test_failed_recreate_preserves_existing_tutorial(tmp_path: Path) -> None:
         recreate_tutorial_project(api, parent, tmp_path / "存在しない原本")
 
     assert marker.read_text(encoding="utf-8") == "維持"
+
+
+def test_archive_succeeds_before_tutorial_is_recreated(tmp_path: Path) -> None:
+    tutorial_parent = tmp_path / "LocalNovelTool"
+    projects_root = tmp_path / "作品"
+    settings = make_settings(tmp_path)
+    api = CoreAPI()
+    tutorial = initialize_sample_project(api, settings, tutorial_parent)
+    assert tutorial is not None
+    edited = tutorial.root / "ユーザー編集.txt"
+    edited.write_text("残す内容", encoding="utf-8")
+
+    archived = archive_tutorial_project(
+        tutorial.root, projects_root, datetime(2026, 8, 16, 13, 36)
+    )
+    recreate_tutorial_project(api, tutorial_parent)
+
+    assert (archived / "ユーザー編集.txt").read_text(encoding="utf-8") == "残す内容"
+    assert not edited.exists()
+    assert_tutorial_contents(api)
+
+
+def test_archive_never_overwrites_same_named_destination(tmp_path: Path) -> None:
+    tutorial_parent = tmp_path / "LocalNovelTool"
+    projects_root = tmp_path / "作品"
+    settings = make_settings(tmp_path)
+    api = CoreAPI()
+    tutorial = initialize_sample_project(api, settings, tutorial_parent)
+    assert tutorial is not None
+    projects_root.mkdir()
+    existing = projects_root / "LocalNovelTool チュートリアル - 保存 2026-08-16 1336"
+    existing.mkdir()
+    marker = existing / "既存.txt"
+    marker.write_text("上書き禁止", encoding="utf-8")
+
+    archived = archive_tutorial_project(
+        tutorial.root, projects_root, datetime(2026, 8, 16, 13, 36)
+    )
+
+    assert archived.name.endswith("(2)")
+    assert marker.read_text(encoding="utf-8") == "上書き禁止"
+    assert (archived / "project.json").is_file()

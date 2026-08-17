@@ -190,10 +190,15 @@ def test_search_result_opens_plot_and_timeline_tabs(tmp_path: Path, monkeypatch)
     assert window.tabs.currentWidget() is window.timeline_tab
     assert window.timeline_tab.current_id == timeline.id
 
+    tutorial_parent = tmp_path / "ドキュメント"
+    (tutorial_parent / main_window_module.SAMPLE_PROJECT_TITLE).mkdir(parents=True)
     monkeypatch.setattr(
-        main_window_module.QMessageBox,
-        "question",
-        lambda *_args, **_kwargs: main_window_module.QMessageBox.StandardButton.No,
+        main_window_module.MainWindow,
+        "_tutorial_parent",
+        staticmethod(lambda: tutorial_parent),
+    )
+    monkeypatch.setattr(
+        window, "_tutorial_recreation_choice", lambda: "cancel"
     )
     monkeypatch.setattr(
         main_window_module,
@@ -206,14 +211,7 @@ def test_search_result_opens_plot_and_timeline_tabs(tmp_path: Path, monkeypatch)
 
     recreated: list[Path] = []
     monkeypatch.setattr(
-        main_window_module.QMessageBox,
-        "question",
-        lambda *_args, **_kwargs: main_window_module.QMessageBox.StandardButton.Yes,
-    )
-    monkeypatch.setattr(
-        main_window_module.MainWindow,
-        "_tutorial_parent",
-        staticmethod(lambda: tmp_path / "ドキュメント"),
+        window, "_tutorial_recreation_choice", lambda: "recreate"
     )
     monkeypatch.setattr(
         main_window_module,
@@ -221,7 +219,7 @@ def test_search_result_opens_plot_and_timeline_tabs(tmp_path: Path, monkeypatch)
         lambda _api, parent: recreated.append(parent),
     )
     window.recreate_tutorial()
-    assert recreated == [tmp_path / "ドキュメント"]
+    assert recreated == [tutorial_parent]
     assert window.settings.value(
         main_window_module.SAMPLE_INITIALIZED_KEY, False, bool
     )
@@ -277,6 +275,70 @@ def test_new_project_uses_dedicated_projects_folder(tmp_path: Path, monkeypatch)
     for folder in ("manuscript", "episode_notes", "references", "backups"):
         assert (root / folder).is_dir()
 
+    window.close()
+    app.processEvents()
+
+
+def test_failed_tutorial_archive_prevents_recreation_and_preserves_normal_project(
+    tmp_path: Path, monkeypatch
+) -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class FakeWebView(QWidget):
+        def setHtml(self, _rendered: str) -> None:  # noqa: N802
+            pass
+
+    monkeypatch.setattr(preview_module, "QWebEngineView", FakeWebView)
+    monkeypatch.setattr(
+        main_window_module.MainWindow, "_try_open_initial_project", lambda self: None
+    )
+    tutorial_parent = tmp_path / "Documents" / "LocalNovelTool"
+    tutorial_root = tutorial_parent / main_window_module.SAMPLE_PROJECT_TITLE
+    tutorial_root.mkdir(parents=True)
+    (tutorial_root / "project.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        main_window_module.MainWindow,
+        "_tutorial_parent",
+        staticmethod(lambda: tutorial_parent),
+    )
+
+    window = main_window_module.MainWindow()
+    window.settings = QSettings(
+        str(tmp_path / "settings-archive.ini"), QSettings.Format.IniFormat
+    )
+    normal_parent = tmp_path / "normal"
+    normal_parent.mkdir()
+    normal = window.api.create_project(normal_parent, "通常作品")
+    marker = normal.root / "変更しない.txt"
+    marker.write_text("保護対象", encoding="utf-8")
+    window._after_project_loaded()
+
+    monkeypatch.setattr(window, "_tutorial_recreation_choice", lambda: "archive")
+    monkeypatch.setattr(
+        main_window_module,
+        "archive_tutorial_project",
+        lambda *_args: (_ for _ in ()).throw(OSError("コピー失敗")),
+    )
+    recreated = []
+    monkeypatch.setattr(
+        main_window_module,
+        "recreate_tutorial_project",
+        lambda *_args: recreated.append(True),
+    )
+    errors = []
+    monkeypatch.setattr(
+        main_window_module.QMessageBox,
+        "critical",
+        lambda *_args: errors.append(_args[2]),
+    )
+
+    window.recreate_tutorial()
+
+    assert recreated == []
+    assert errors == ["コピー失敗"]
+    assert marker.read_text(encoding="utf-8") == "保護対象"
+    assert window.api.project is normal
+    assert (tutorial_root / "project.json").is_file()
     window.close()
     app.processEvents()
 
