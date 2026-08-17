@@ -594,6 +594,55 @@ def test_projects_root_defaults_persists_and_resets(tmp_path: Path, monkeypatch)
     app.processEvents()
 
 
+def test_project_storage_settings_are_available_without_any_project(
+    tmp_path: Path, monkeypatch
+) -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class FakeWebView(QWidget):
+        def setHtml(self, _rendered: str) -> None:  # noqa: N802
+            pass
+
+    monkeypatch.setattr(preview_module, "QWebEngineView", FakeWebView)
+    monkeypatch.setattr(
+        main_window_module.MainWindow, "_try_open_initial_project", lambda self: None
+    )
+    tutorial_parent = tmp_path / "missing" / "Documents" / "LocalNovelTool"
+    monkeypatch.setattr(
+        main_window_module.MainWindow,
+        "_tutorial_parent",
+        staticmethod(lambda: tutorial_parent),
+    )
+    custom_root = tmp_path / "NovelProjects"
+    custom_root.mkdir()
+
+    class FakeSettingsDialog:
+        def __init__(self, _current, _default, _parent) -> None:
+            pass
+
+        def exec(self) -> QDialog.DialogCode:
+            return QDialog.DialogCode.Accepted
+
+        def selected_root(self) -> Path:
+            return custom_root
+
+    monkeypatch.setattr(main_window_module, "SettingsDialog", FakeSettingsDialog)
+    window = main_window_module.MainWindow()
+    window.settings = QSettings(
+        str(tmp_path / "settings-no-project.ini"), QSettings.Format.IniFormat
+    )
+
+    assert window.api.project is None
+    assert not tutorial_parent.exists()
+    assert window.settings_action.isEnabled()
+    window.settings_action.trigger()
+    assert window._projects_parent() == custom_root
+    assert window.api.project is None
+    assert not tutorial_parent.exists()
+    window.close()
+    app.processEvents()
+
+
 def test_new_project_uses_configured_root_without_moving_existing(
     tmp_path: Path, monkeypatch
 ) -> None:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-# Built-in source of truth for the v0.2.1 tutorial content.
+# Built-in source of truth for the official tutorial content.
 TUTORIAL_PROJECT = {'format_version': 1,
  'title': 'LocalNovelTool チュートリアル',
  'chapters': [{'id': 'ch_927909f8738f',
