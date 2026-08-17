@@ -76,7 +76,9 @@ class NovelProject:
     def _validate_project_name(title: str) -> None:
         if not title:
             raise ProjectError("作品名を入力してください。")
-        if title in {".", ".."} or any(char in INVALID_PROJECT_NAME_CHARS for char in title):
+        if title in {".", ".."} or any(
+            char in INVALID_PROJECT_NAME_CHARS or ord(char) < 32 for char in title
+        ):
             raise ProjectError("作品名にフォルダ名として使用できない文字が含まれています。")
         if title.endswith((" ", ".")):
             raise ProjectError("作品名の末尾に空白またはピリオドは使用できません。")

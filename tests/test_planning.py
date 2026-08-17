@@ -229,6 +229,52 @@ def test_search_result_opens_plot_and_timeline_tabs(tmp_path: Path, monkeypatch)
     app.processEvents()
 
 
+def test_new_project_uses_dedicated_projects_folder(tmp_path: Path, monkeypatch) -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class FakeWebView(QWidget):
+        def setHtml(self, _rendered: str) -> None:  # noqa: N802
+            pass
+
+    monkeypatch.setattr(preview_module, "QWebEngineView", FakeWebView)
+    monkeypatch.setattr(
+        main_window_module.MainWindow, "_try_open_initial_project", lambda self: None
+    )
+    monkeypatch.setattr(
+        main_window_module.MainWindow,
+        "_tutorial_parent",
+        staticmethod(lambda: tmp_path / "Documents" / "LocalNovelTool"),
+    )
+    monkeypatch.setattr(
+        main_window_module.QInputDialog,
+        "getText",
+        lambda *_args, **_kwargs: ("新しい作品", True),
+    )
+    monkeypatch.setattr(
+        main_window_module.QFileDialog,
+        "getExistingDirectory",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("保存先選択ダイアログが表示されました")
+        ),
+    )
+
+    window = main_window_module.MainWindow()
+    window.settings = QSettings(
+        str(tmp_path / "settings-new.ini"), QSettings.Format.IniFormat
+    )
+    window.new_project()
+
+    root = tmp_path / "Documents" / "LocalNovelTool" / "作品" / "新しい作品"
+    assert window.api.project is not None
+    assert window.api.project.root == root.resolve()
+    assert (root / "project.json").is_file()
+    for folder in ("manuscript", "episode_notes", "references", "backups"):
+        assert (root / folder).is_dir()
+
+    window.close()
+    app.processEvents()
+
+
 def test_planning_lists_emit_dragged_order() -> None:
     app = QApplication.instance() or QApplication([])
     first = SimpleNamespace(id="first", title="最初", point="2年前")
