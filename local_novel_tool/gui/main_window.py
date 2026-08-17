@@ -184,6 +184,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.timeline_tab, "時系列")
         self.tabs.addTab(self.search_tab, "文章検索")
         self.tabs.addTab(self.reference_tab, "資料")
+        self._set_episode_editors_enabled(False)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self.tree)
@@ -542,9 +543,7 @@ class MainWindow(QMainWindow):
                 raise ProjectError(
                     "作品の保存フォルダへ書き込めません。設定を確認してください。"
                 )
-            self.api.create_project(
-                projects_parent, title, with_initial_episode=True
-            )
+            self.api.create_project(projects_parent, title)
             self._after_project_loaded()
         except ProjectError as exc:
             QMessageBox.warning(self, "作成できません", str(exc))
@@ -579,6 +578,7 @@ class MainWindow(QMainWindow):
         self.editor_tab.set_text("")
         self.note_tab.set_text("")
         self.preview_tab.set_source_text("")
+        self._set_episode_editors_enabled(False)
         self.tree.rebuild(project.chapters)
         self.refresh_references()
         self.refresh_planning()
@@ -625,8 +625,10 @@ class MainWindow(QMainWindow):
         elif self.api.chapters():
             chapter_id = self.api.chapters()[0].id
         if chapter_id is None:
-            chapter = self.api.create_chapter("第一章")
-            chapter_id = chapter.id
+            QMessageBox.information(
+                self, "話追加", "先に章を追加してください。"
+            )
+            return
         title, ok = QInputDialog.getText(self, "話追加", "話タイトル")
         if ok:
             episode = self.api.create_episode(chapter_id, title)
@@ -657,14 +659,29 @@ class MainWindow(QMainWindow):
         message = "章と中の話をすべて削除しますか？" if kind == "chapter" else "この話を削除しますか？"
         if QMessageBox.question(self, "削除", message) != QMessageBox.StandardButton.Yes:
             return
+        clear_episode = bool(
+            self.current_episode_id
+            and (
+                (kind == "episode" and self.current_episode_id == selected_id)
+                or (
+                    kind == "chapter"
+                    and any(
+                        episode.id == self.current_episode_id
+                        for episode in self.api.project.get_chapter(selected_id).episodes
+                    )
+                )
+            )
+        )
         if kind == "chapter":
             self.api.delete_chapter(selected_id)
         else:
             self.api.delete_episode(selected_id)
-            if self.current_episode_id == selected_id:
-                self.current_episode_id = None
-                self.editor_tab.set_text("")
-                self.note_tab.set_text("")
+        if clear_episode:
+            self.current_episode_id = None
+            self.editor_tab.set_text("")
+            self.note_tab.set_text("")
+            self.preview_tab.set_source_text("")
+            self._set_episode_editors_enabled(False)
         self.refresh_tree()
 
     def open_episode(self, episode_id: str) -> None:
@@ -672,12 +689,20 @@ class MainWindow(QMainWindow):
             return
         self._flush_editors()
         self.current_episode_id = episode_id
+        self._set_episode_editors_enabled(True)
         self.editor_tab.set_text(self.api.load_episode_body(episode_id))
         self.note_tab.set_text(self.api.load_episode_note(episode_id))
         episode = self.api.project.get_episode(episode_id)
         self.statusBar().showMessage(episode.title)
         if self.tabs.currentWidget() == self.preview_tab:
             self.preview_tab.set_source_text(self.editor_tab.editor.toPlainText())
+
+    def _set_episode_editors_enabled(self, enabled: bool) -> None:
+        self.editor_tab.editor.setReadOnly(not enabled)
+        self.note_tab.editor.setReadOnly(not enabled)
+        message = "" if enabled else "話を追加すると本文を編集できます"
+        self.editor_tab.editor.setPlaceholderText(message)
+        self.note_tab.editor.setPlaceholderText(message)
 
     def save_current_body(self, text: str) -> None:
         if self.current_episode_id and self.api.project:
