@@ -238,6 +238,13 @@ class MainWindow(QMainWindow):
             action.triggered.connect(handler)
             toolbar.addAction(action)
             setattr(self, attribute, action)
+        toolbar.addWidget(QLabel("文章サイズ:", self))
+        self.content_font_size_spin = QSpinBox(self)
+        self.content_font_size_spin.setRange(10, 32)
+        self.content_font_size_spin.setSuffix(" pt")
+        self.content_font_size_spin.setValue(self._content_font_size())
+        self.content_font_size_spin.valueChanged.connect(self._set_content_font_size)
+        toolbar.addWidget(self.content_font_size_spin)
 
     def _build_menu(self) -> None:
         file_menu = self.menuBar().addMenu("ファイル")
@@ -259,6 +266,14 @@ class MainWindow(QMainWindow):
         self.settings_action.setEnabled(True)
         self.settings_action.triggered.connect(self.open_settings)
         file_menu.addAction(self.settings_action)
+        self.increase_font_action = QAction(self)
+        self.increase_font_action.setShortcut(QKeySequence("Ctrl++"))
+        self.increase_font_action.triggered.connect(lambda: self._set_content_font_size(self._content_font_size() + 1))
+        self.addAction(self.increase_font_action)
+        self.decrease_font_action = QAction(self)
+        self.decrease_font_action.setShortcut(QKeySequence("Ctrl+-"))
+        self.decrease_font_action.triggered.connect(lambda: self._set_content_font_size(self._content_font_size() - 1))
+        self.addAction(self.decrease_font_action)
 
         help_menu = self.menuBar().addMenu("ヘルプ")
         tutorial_action = QAction("チュートリアルを再作成", self)
@@ -471,6 +486,16 @@ class MainWindow(QMainWindow):
             editor.setFont(font)
         self.preview_tab.set_content_font_size(size)
 
+    def _set_content_font_size(self, size: int) -> None:
+        size = max(10, min(32, size))
+        self.settings.setValue(CONTENT_FONT_SIZE_KEY, size)
+        self.settings.sync()
+        self._apply_content_font_size(size)
+        if self.content_font_size_spin.value() != size:
+            self.content_font_size_spin.blockSignals(True)
+            self.content_font_size_spin.setValue(size)
+            self.content_font_size_spin.blockSignals(False)
+
     def _set_projects_parent(self, path: Path) -> None:
         self.settings.setValue(PROJECTS_ROOT_KEY, str(path))
         self.settings.sync()
@@ -481,9 +506,7 @@ class MainWindow(QMainWindow):
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._set_projects_parent(dialog.selected_root())
-            self.settings.setValue(CONTENT_FONT_SIZE_KEY, dialog.content_font_size())
-            self.settings.sync()
-            self._apply_content_font_size(dialog.content_font_size())
+            self._set_content_font_size(dialog.content_font_size())
 
     def recreate_tutorial(self) -> None:
         tutorial_root = self._tutorial_parent() / SAMPLE_PROJECT_TITLE
@@ -524,7 +547,7 @@ class MainWindow(QMainWindow):
             self.settings.setValue(SAMPLE_INITIALIZED_KEY, True)
             self.settings.sync()
             if load_recreated:
-                self._after_project_loaded()
+                self._load_project(tutorial_root)
             if archived:
                 self.statusBar().showMessage(f"退避先: {archived}")
         except Exception as exc:
