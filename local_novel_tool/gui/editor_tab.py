@@ -69,6 +69,10 @@ class TextEditorTab(QWidget):
             self.timer.stop()
             self._request_save()
 
+    def mark_saved(self) -> None:
+        self.timer.stop()
+        self.save_label.setText("保存済み")
+
     def insert_ruby(self) -> None:
         cursor = self.editor.textCursor()
         selected = cursor.selectedText()
