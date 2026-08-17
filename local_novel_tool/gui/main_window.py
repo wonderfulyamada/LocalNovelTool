@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, QStandardPaths, Qt, QUrl
+from PySide6.QtCore import QSettings, QStandardPaths, QThread, Qt, QUrl
 from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QDialog,
@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 from local_novel_tool.core.api import CoreAPI
 from local_novel_tool.core.project import ProjectContentError, ProjectError
 from local_novel_tool.version import APP_NAME, APP_VERSION, AUTHOR_NAME
+from .backup_worker import BackupWorker
 from .editor_tab import TextEditorTab
 from .plot_tab import PlotTab
 from .preview_tab import PreviewTab
@@ -157,6 +158,8 @@ class MainWindow(QMainWindow):
         self.api = CoreAPI()
         self.current_episode_id: str | None = None
         self._dirty_sources: set[str] = set()
+        self._backup_thread: QThread | None = None
+        self._backup_worker: BackupWorker | None = None
         config_dir = Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppConfigLocation))
         config_dir.mkdir(parents=True, exist_ok=True)
         self.settings = QSettings(str(config_dir / "settings.ini"), QSettings.Format.IniFormat)
@@ -345,7 +348,7 @@ class MainWindow(QMainWindow):
 
         self.toolbar_save_action.setEnabled(has_project)
         self.save_action.setEnabled(has_project)
-        self.backup_action.setEnabled(has_project)
+        self.backup_action.setEnabled(has_project and not self._backup_is_running())
         self.open_folder_action.setEnabled(has_project)
         self.add_chapter_action.setEnabled(has_project)
         self.add_episode_action.setEnabled(chapter_selected)
@@ -591,19 +594,47 @@ class MainWindow(QMainWindow):
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.api.project.root)))
 
     def create_backup(self) -> None:
-        if not self.api.project:
+        if not self.api.project or self._backup_is_running():
             return
-        try:
-            destination = self.api.create_backup(self._tutorial_parent() / "Backups")
-        except Exception as exc:
-            QMessageBox.critical(self, "バックアップ失敗", str(exc))
-            return
+        thread = QThread(self)
+        worker = BackupWorker(
+            self.api.project.root, self._tutorial_parent() / "Backups"
+        )
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.succeeded.connect(self._backup_succeeded)
+        worker.failed.connect(self._backup_failed)
+        worker.succeeded.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        worker.succeeded.connect(worker.deleteLater)
+        worker.failed.connect(worker.deleteLater)
+        thread.finished.connect(self._backup_finished)
+        thread.finished.connect(thread.deleteLater)
+        self._backup_thread = thread
+        self._backup_worker = worker
+        self.backup_action.setEnabled(False)
+        self.statusBar().showMessage("バックアップ中...")
+        thread.start()
+
+    def _backup_is_running(self) -> bool:
+        return self._backup_thread is not None
+
+    def _backup_succeeded(self, destination: Path) -> None:
         QMessageBox.information(
             self,
             "バックアップ完了",
             f"バックアップを作成しました。\n{destination}",
         )
         self.statusBar().showMessage(f"バックアップ: {destination}")
+
+    def _backup_failed(self, message: str) -> None:
+        QMessageBox.critical(self, "バックアップ失敗", message)
+        self.statusBar().showMessage("バックアップに失敗しました")
+
+    def _backup_finished(self) -> None:
+        self._backup_worker = None
+        self._backup_thread = None
+        self._update_action_states()
 
     def _load_project(self, root: Path) -> None:
         try:
@@ -954,6 +985,12 @@ class MainWindow(QMainWindow):
         )
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
+        if self._backup_is_running():
+            self.statusBar().showMessage(
+                "バックアップ中です。完了後にもう一度終了してください。"
+            )
+            event.ignore()
+            return
         if self._has_unsaved_changes():
             if not self._confirm_save_on_close():
                 event.ignore()
