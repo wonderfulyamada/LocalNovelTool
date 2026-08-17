@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, QStandardPaths, Qt, QUrl
@@ -9,14 +10,17 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QHBoxLayout,
     QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
     QMessageBox,
+    QPushButton,
     QSplitter,
     QTabWidget,
     QToolBar,
+    QVBoxLayout,
 )
 
 from local_novel_tool.core.api import CoreAPI
@@ -34,6 +38,9 @@ from .sample_project import (
 )
 from .search_tab import SearchTab
 from .timeline_tab import TimelineTab
+
+
+PROJECTS_ROOT_KEY = "projects_root"
 
 
 class NewProjectDialog(QDialog):
@@ -68,6 +75,75 @@ class NewProjectDialog(QDialog):
 
     def project_title(self) -> str:
         return self.title_edit.text().strip()
+
+
+class SettingsDialog(QDialog):
+    def __init__(self, projects_root: Path, default_root: Path, parent=None) -> None:
+        super().__init__(parent)
+        self.default_root = default_root
+        self.setWindowTitle("設定")
+
+        self.path_edit = QLineEdit(str(projects_root), self)
+        self.path_edit.setReadOnly(True)
+        select_button = QPushButton("選択...", self)
+        reset_button = QPushButton("デフォルトに戻す", self)
+        select_button.clicked.connect(self.select_projects_root)
+        reset_button.clicked.connect(self.reset_projects_root)
+
+        path_row = QHBoxLayout()
+        path_row.addWidget(self.path_edit, 1)
+        path_row.addWidget(select_button)
+        reset_row = QHBoxLayout()
+        reset_row.addStretch(1)
+        reset_row.addWidget(reset_button)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel,
+            parent=self,
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("作品の保存フォルダ", self))
+        layout.addLayout(path_row)
+        layout.addLayout(reset_row)
+        layout.addWidget(buttons)
+
+    def selected_root(self) -> Path:
+        return Path(self.path_edit.text())
+
+    def select_projects_root(self) -> None:
+        folder = QFileDialog.getExistingDirectory(
+            self, "作品の保存フォルダを選択", self.path_edit.text()
+        )
+        if not folder:
+            return
+        path = Path(folder)
+        if not path.is_dir() or not os.access(path, os.W_OK):
+            QMessageBox.warning(
+                self, "設定できません", "書き込み可能なフォルダを選択してください。"
+            )
+            return
+        self.path_edit.setText(str(path))
+
+    def reset_projects_root(self) -> None:
+        self.path_edit.setText(str(self.default_root))
+
+    def accept(self) -> None:
+        path = self.selected_root()
+        if not path.is_absolute():
+            QMessageBox.warning(self, "設定できません", "有効な保存先を選択してください。")
+            return
+        if path != self.default_root and (
+            not path.is_dir() or not os.access(path, os.W_OK)
+        ):
+            QMessageBox.warning(
+                self, "設定できません", "書き込み可能なフォルダを選択してください。"
+            )
+            return
+        super().accept()
 
 
 class MainWindow(QMainWindow):
@@ -142,6 +218,10 @@ class MainWindow(QMainWindow):
         self.open_folder_action.setEnabled(False)
         self.open_folder_action.triggered.connect(self.open_project_folder)
         file_menu.addAction(self.open_folder_action)
+        file_menu.addSeparator()
+        settings_action = QAction("設定...", self)
+        settings_action.triggered.connect(self.open_settings)
+        file_menu.addAction(settings_action)
 
         help_menu = self.menuBar().addMenu("ヘルプ")
         tutorial_action = QAction("チュートリアルを再作成", self)
@@ -217,8 +297,23 @@ class MainWindow(QMainWindow):
         return Path(documents) / "LocalNovelTool"
 
     @classmethod
-    def _projects_parent(cls) -> Path:
+    def _default_projects_parent(cls) -> Path:
         return cls._tutorial_parent() / "作品"
+
+    def _projects_parent(self) -> Path:
+        configured = self.settings.value(PROJECTS_ROOT_KEY, "", str).strip()
+        return Path(configured) if configured else self._default_projects_parent()
+
+    def _set_projects_parent(self, path: Path) -> None:
+        self.settings.setValue(PROJECTS_ROOT_KEY, str(path))
+        self.settings.sync()
+
+    def open_settings(self) -> None:
+        dialog = SettingsDialog(
+            self._projects_parent(), self._default_projects_parent(), self
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._set_projects_parent(dialog.selected_root())
 
     def recreate_tutorial(self) -> None:
         answer = QMessageBox.question(
@@ -256,7 +351,13 @@ class MainWindow(QMainWindow):
         if not title:
             return
         try:
+            if not projects_parent.is_absolute():
+                raise ProjectError("作品の保存フォルダが無効です。設定を確認してください。")
             projects_parent.mkdir(parents=True, exist_ok=True)
+            if not projects_parent.is_dir() or not os.access(projects_parent, os.W_OK):
+                raise ProjectError(
+                    "作品の保存フォルダへ書き込めません。設定を確認してください。"
+                )
             self.api.create_project(projects_parent, title)
             self._after_project_loaded()
         except ProjectError as exc:
