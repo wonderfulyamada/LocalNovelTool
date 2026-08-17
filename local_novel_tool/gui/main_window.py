@@ -459,22 +459,30 @@ class MainWindow(QMainWindow):
                 self.settings.value(PROJECTS_ROOT_KEY, "", str)
             )
             if not existing:
-                dialog = FirstLaunchDialog(
-                    self._default_projects_parent(), self._default_projects_parent(), self
-                )
-                if dialog.exec() != QDialog.DialogCode.Accepted:
-                    return
-                self._set_projects_parent(dialog.selected_root())
-                try:
-                    sample = initialize_sample_project(
-                        self.api, self.settings, self._projects_parent()
+                selected_root = self._default_projects_parent()
+                while True:
+                    dialog = FirstLaunchDialog(
+                        selected_root, self._default_projects_parent(), self
                     )
-                except Exception as exc:
-                    QMessageBox.warning(self, "サンプル作成失敗", str(exc))
+                    if dialog.exec() != QDialog.DialogCode.Accepted:
+                        return
+                    selected_root = dialog.selected_root()
+                    try:
+                        if not selected_root.is_absolute():
+                            raise ProjectError("有効な保存先を選択してください。")
+                        selected_root.mkdir(parents=True, exist_ok=True)
+                        if not selected_root.is_dir() or not os.access(selected_root, os.W_OK):
+                            raise ProjectError("作品の保存フォルダへ書き込めません。")
+                        sample = initialize_sample_project(
+                            self.api, self.settings, selected_root
+                        )
+                    except Exception as exc:
+                        QMessageBox.warning(self, "サンプル作成失敗", str(exc))
+                        continue
+                    self._set_projects_parent(selected_root)
+                    if sample is not None:
+                        self._after_project_loaded()
                     return
-                if sample is not None:
-                    self._after_project_loaded()
-                return
         try:
             sample = initialize_sample_project(
                 self.api, self.settings, self._tutorial_parent()
