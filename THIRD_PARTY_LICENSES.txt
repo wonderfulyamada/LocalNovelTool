@@ -1,0 +1,40 @@
+Third-party software notices
+================================
+
+This distribution contains the following third-party runtime components.
+Copyright remains with their respective owners.
+
+Python 3.14
+  License: Python Software Foundation License Version 2
+  License information: https://docs.python.org/3/license.html
+
+Qt 6.11.1 / Qt for Python (PySide6 and Shiboken6) 6.11.1
+  License options include GNU LGPL v3, GNU GPL v2/v3, and commercial terms.
+  This distribution uses the open-source license option.
+  License information: https://www.qt.io/licensing/open-source-lgpl-obligations
+  Corresponding sources: https://download.qt.io/official_releases/QtForPython/
+
+Qt WebEngine / Chromium components
+  Qt WebEngine includes Chromium and other third-party components under their
+  respective open-source licenses.
+  License information: https://doc.qt.io/qt-6/qtwebengine-licensing.html
+
+OpenSSL 3
+  License: Apache License 2.0
+  License information: https://www.openssl.org/source/license.html
+
+ICU
+  License: Unicode License V3
+  License information: https://github.com/unicode-org/icu/blob/main/LICENSE
+
+zlib
+  License: zlib License
+  License information: https://www.zlib.net/zlib_license.html
+
+Nuitka runtime support
+  License: Apache License 2.0
+  License information: https://github.com/Nuitka/Nuitka/blob/main/LICENSE-RUNTIME.txt
+
+Microsoft Visual C++ Runtime
+  Distributed under the Microsoft Visual Studio licensing terms.
+  License information: https://visualstudio.microsoft.com/license-terms/

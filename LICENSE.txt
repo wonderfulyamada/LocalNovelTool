@@ -1,0 +1,5 @@
+Local Novel Tool
+Copyright (c) 2026 Wonderful Yamada
+
+このファイルは仮ライセンス表記です。
+正式配布前に、作者が採用するソフトウェアライセンスへ置き換えてください。
