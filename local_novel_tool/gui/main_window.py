@@ -198,6 +198,7 @@ class MainWindow(QMainWindow):
         self._connect()
         self.statusBar().showMessage("作品を新規作成するか開いてください。")
         self._try_open_initial_project()
+        self._update_action_states()
 
     def _build_toolbar(self) -> None:
         toolbar = QToolBar("メイン")
@@ -205,18 +206,19 @@ class MainWindow(QMainWindow):
         self.addToolBar(toolbar)
 
         actions = [
-            ("新規作品", self.new_project),
-            ("開く", self.open_project),
-            ("保存", self.manual_save),
-            ("章追加", self.add_chapter),
-            ("話追加", self.add_episode),
-            ("名前変更", self.rename_selected),
-            ("削除", self.delete_selected),
+            ("new_project_action", "新規作品", self.new_project),
+            ("open_project_action", "開く", self.open_project),
+            ("toolbar_save_action", "保存", self.manual_save),
+            ("add_chapter_action", "章追加", self.add_chapter),
+            ("add_episode_action", "話追加", self.add_episode),
+            ("rename_action", "名前変更", self.rename_selected),
+            ("delete_action", "削除", self.delete_selected),
         ]
-        for label, handler in actions:
+        for attribute, label, handler in actions:
             action = QAction(label, self)
             action.triggered.connect(handler)
             toolbar.addAction(action)
+            setattr(self, attribute, action)
 
     def _build_menu(self) -> None:
         file_menu = self.menuBar().addMenu("ファイル")
@@ -256,6 +258,7 @@ class MainWindow(QMainWindow):
 
     def _connect(self) -> None:
         self.tree.episode_selected.connect(self.open_episode)
+        self.tree.itemSelectionChanged.connect(self._update_action_states)
         self.tree.structure_changed.connect(self.apply_tree_order)
         self.editor_tab.save_requested.connect(self.save_current_body)
         self.note_tab.save_requested.connect(self.save_current_note)
@@ -328,6 +331,27 @@ class MainWindow(QMainWindow):
     def _mark_dirty(self, source: str, changed: bool = True) -> None:
         if changed and self.api.project:
             self._dirty_sources.add(source)
+
+    def _update_action_states(self) -> None:
+        """Apply project/tree dependent action states from the current context."""
+        has_project = self.api.project is not None
+        kind, selected_id = self.tree.selected_identity()
+        chapter_selected = has_project and kind == "chapter" and bool(selected_id)
+        episode_selected = has_project and kind == "episode" and bool(selected_id)
+        item_selected = chapter_selected or episode_selected
+
+        self.toolbar_save_action.setEnabled(has_project)
+        self.save_action.setEnabled(has_project)
+        self.open_folder_action.setEnabled(has_project)
+        self.add_chapter_action.setEnabled(has_project)
+        self.add_episode_action.setEnabled(chapter_selected)
+        self.rename_action.setEnabled(item_selected)
+        self.delete_action.setEnabled(item_selected)
+        self._set_episode_editors_enabled(bool(episode_selected))
+        for index in (0, 1, 2):
+            self.tabs.setTabEnabled(index, bool(episode_selected))
+        for index in (3, 4, 5, 6):
+            self.tabs.setTabEnabled(index, has_project)
 
     def _mark_saved(self, source: str) -> None:
         self._dirty_sources.discard(source)
@@ -583,11 +607,11 @@ class MainWindow(QMainWindow):
         self.refresh_references()
         self.refresh_planning()
         self.setWindowTitle(f"{project.title} - {APP_NAME}")
-        self.open_folder_action.setEnabled(True)
         self.settings.setValue("last_project", str(project.root))
         self.statusBar().showMessage(str(project.root))
         if project.chapters and project.chapters[0].episodes:
             self.tree.select_episode(project.chapters[0].episodes[0].id)
+        self._update_action_states()
 
     def refresh_tree(self) -> None:
         if self.api.project:
@@ -595,6 +619,7 @@ class MainWindow(QMainWindow):
             self.tree.rebuild(self.api.chapters())
             if selected:
                 self.tree.select_episode(selected)
+            self._update_action_states()
 
     def refresh_references(self) -> None:
         if self.api.project:
@@ -689,13 +714,13 @@ class MainWindow(QMainWindow):
             return
         self._flush_editors()
         self.current_episode_id = episode_id
-        self._set_episode_editors_enabled(True)
         self.editor_tab.set_text(self.api.load_episode_body(episode_id))
         self.note_tab.set_text(self.api.load_episode_note(episode_id))
         episode = self.api.project.get_episode(episode_id)
         self.statusBar().showMessage(episode.title)
         if self.tabs.currentWidget() == self.preview_tab:
             self.preview_tab.set_source_text(self.editor_tab.editor.toPlainText())
+        self._update_action_states()
 
     def _set_episode_editors_enabled(self, enabled: bool) -> None:
         self.editor_tab.editor.setReadOnly(not enabled)
