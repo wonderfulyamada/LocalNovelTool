@@ -9,13 +9,12 @@ from PySide6.QtCore import QSettings
 from local_novel_tool.core.api import CoreAPI
 from local_novel_tool.gui.sample_project import (
     SAMPLE_INITIALIZED_KEY,
-    SAMPLE_PLOT,
+    SAMPLE_PLOTS,
     SAMPLE_PROJECT_TITLE,
     SAMPLE_REFERENCES,
     SAMPLE_TIMELINE,
-    TABS_BODY,
-    WELCOME_BODY,
-    WELCOME_NOTE,
+    TUTORIAL_CHAPTERS,
+    TUTORIAL_NOTE,
     initialize_sample_project,
 )
 
@@ -34,26 +33,40 @@ def test_first_launch_creates_complete_sample_project(tmp_path: Path) -> None:
     assert project.title == SAMPLE_PROJECT_TITLE
     assert project.root == (tmp_path / "作品 保存先" / SAMPLE_PROJECT_TITLE).resolve()
     assert settings.value(SAMPLE_INITIALIZED_KEY, False, bool)
-    assert len(project.chapters) == 1
-    chapter = project.chapters[0]
-    assert chapter.title == "はじめに"
-    assert [episode.title for episode in chapter.episodes] == [
-        "ようこそ",
-        "各タブを試してみる",
+    assert [chapter.title for chapter in project.chapters] == [
+        "まず触ってみよう",
+        "設定を整理しよう",
     ]
-    assert api.load_episode_body(chapter.episodes[0].id) == WELCOME_BODY
-    assert api.load_episode_body(chapter.episodes[1].id) == TABS_BODY
-    assert api.load_episode_note(chapter.episodes[0].id) == WELCOME_NOTE
+    assert [
+        [episode.title for episode in chapter.episodes]
+        for chapter in project.chapters
+    ] == [
+        [title for title, _body in TUTORIAL_CHAPTERS[0][1]],
+        [title for title, _body in TUTORIAL_CHAPTERS[1][1]],
+    ]
+    for chapter, (_chapter_title, expected_episodes) in zip(
+        project.chapters, TUTORIAL_CHAPTERS
+    ):
+        for episode, (_title, expected_body) in zip(
+            chapter.episodes, expected_episodes
+        ):
+            assert api.load_episode_body(episode.id) == expected_body
+    note_episode = project.chapters[0].episodes[2]
+    assert api.load_episode_note(note_episode.id) == TUTORIAL_NOTE
     assert [
         (reference.category, reference.title, api.load_reference(reference.id))
         for reference in project.references
     ] == list(SAMPLE_REFERENCES)
-    assert [(item.title, item.content) for item in project.plot_items] == [
-        SAMPLE_PLOT
-    ]
-    assert [(item.point, item.title) for item in project.timeline_items] == [
-        SAMPLE_TIMELINE
-    ]
+    assert [(item.title, item.content) for item in project.plot_items] == list(
+        SAMPLE_PLOTS
+    )
+    assert [
+        (item.point, item.title, item.content) for item in project.timeline_items
+    ] == list(SAMPLE_TIMELINE)
+
+    white_rain_hits = api.search("白雨")
+    assert "episode" in {result.kind for result in white_rain_hits}
+    assert "reference" in {result.kind for result in white_rain_hits}
 
 
 def test_initialized_sample_is_not_created_again(tmp_path: Path, monkeypatch) -> None:
