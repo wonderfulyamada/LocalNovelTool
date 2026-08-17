@@ -28,6 +28,10 @@ def test_preview_uses_configured_content_font_size_in_both_modes() -> None:
     assert "font-size: 21pt" in render_html("本文", vertical=True, font_size=21)
 
 
+def test_preview_default_and_configured_sizes_are_explicit() -> None:
+    assert "font-size: 14pt" in render_html("本文")
+
+
 def test_preview_escapes_html_and_handles_empty_text() -> None:
     assert "<body></body>" in render_html("")
     rendered = render_html("<本文>&｜A1《えーわん》")

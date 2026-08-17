@@ -414,6 +414,58 @@ def test_tutorial_menu_archives_and_reloads_bundled_original(
     app.processEvents()
 
 
+def test_content_font_toolbar_persists_clamps_and_updates_editors(tmp_path: Path, monkeypatch) -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class FakeWebView(QWidget):
+        def setHtml(self, _rendered: str) -> None:  # noqa: N802
+            pass
+
+    monkeypatch.setattr(preview_module, "QWebEngineView", FakeWebView)
+    monkeypatch.setattr(main_window_module.MainWindow, "_try_open_initial_project", lambda self: None)
+    window = main_window_module.MainWindow()
+    settings = QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    settings.setValue(main_window_module.CONTENT_FONT_SIZE_KEY, 20)
+    window.settings = settings
+    window._set_content_font_size(window._content_font_size())
+    assert window.content_font_size_spin.value() == 20
+    assert window.editor_tab.editor.font().pointSize() == 20
+    assert window.note_tab.editor.font().pointSize() == 20
+    assert window.reference_tab.editor.font().pointSize() == 20
+    tree_size = window.tree.font().pointSize()
+    window.content_font_size_spin.setValue(32)
+    assert window.plot_tab.content.font().pointSize() == 32
+    assert window.timeline_tab.content.font().pointSize() == 32
+    assert window.tree.font().pointSize() == tree_size
+    window._set_content_font_size(100)
+    assert window.content_font_size_spin.value() == 32
+    window._set_content_font_size(1)
+    assert window.content_font_size_spin.value() == 10
+    assert settings.value(main_window_module.CONTENT_FONT_SIZE_KEY, 0, int) == 10
+    window.close()
+    app.processEvents()
+
+
+def test_content_font_shortcuts_step_and_clamp(tmp_path: Path, monkeypatch) -> None:
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr(main_window_module.MainWindow, "_try_open_initial_project", lambda self: None)
+    window = main_window_module.MainWindow()
+    window.settings = QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    window._set_content_font_size(20)
+    window.increase_font_action.trigger()
+    assert window.content_font_size_spin.value() == 21
+    window.decrease_font_action.trigger()
+    assert window.content_font_size_spin.value() == 20
+    window._set_content_font_size(32)
+    window.increase_font_action.trigger()
+    assert window.content_font_size_spin.value() == 32
+    window._set_content_font_size(10)
+    window.decrease_font_action.trigger()
+    assert window.content_font_size_spin.value() == 10
+    window.close()
+    app.processEvents()
+
+
 def test_tutorial_choice_maps_qt_button_roles() -> None:
     assert main_window_module.MainWindow._tutorial_choice_for_role(
         QMessageBox.ButtonRole.AcceptRole
