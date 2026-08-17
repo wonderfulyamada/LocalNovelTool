@@ -163,6 +163,18 @@ class SettingsDialog(QDialog):
         super().accept()
 
 
+class FirstLaunchDialog(SettingsDialog):
+    """One-page setup using the same project-root control as settings."""
+
+    def __init__(self, projects_root: Path, default_root: Path, parent=None) -> None:
+        super().__init__(projects_root, default_root, parent)
+        self.setWindowTitle("LocalNovelToolへようこそ")
+        self.layout().insertWidget(0, QLabel("作品を保存するフォルダを選択してください。", self))
+        buttons = self.findChild(QDialogButtonBox)
+        if buttons is not None:
+            buttons.button(QDialogButtonBox.StandardButton.Ok).setText("開始")
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -442,6 +454,27 @@ class MainWindow(QMainWindow):
                 pass
 
     def _try_open_initial_project(self) -> None:
+        if not self.settings.value(SAMPLE_INITIALIZED_KEY, False, bool):
+            existing = bool(self.settings.value("last_project", "", str)) or bool(
+                self.settings.value(PROJECTS_ROOT_KEY, "", str)
+            )
+            if not existing:
+                dialog = FirstLaunchDialog(
+                    self._default_projects_parent(), self._default_projects_parent(), self
+                )
+                if dialog.exec() != QDialog.DialogCode.Accepted:
+                    return
+                self._set_projects_parent(dialog.selected_root())
+                try:
+                    sample = initialize_sample_project(
+                        self.api, self.settings, self._projects_parent()
+                    )
+                except Exception as exc:
+                    QMessageBox.warning(self, "サンプル作成失敗", str(exc))
+                    return
+                if sample is not None:
+                    self._after_project_loaded()
+                return
         try:
             sample = initialize_sample_project(
                 self.api, self.settings, self._tutorial_parent()
