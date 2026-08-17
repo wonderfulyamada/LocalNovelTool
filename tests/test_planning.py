@@ -17,9 +17,10 @@ from local_novel_tool.gui.plot_tab import PlotTab
 from local_novel_tool.gui.sample_project import (
     SAMPLE_PROJECT_TITLE,
     initialize_sample_project,
-    tutorial_resource_path,
 )
 from local_novel_tool.gui.timeline_tab import TimelineTab
+from local_novel_tool.tutorial.generator import tutorial_matches_template
+from local_novel_tool.tutorial.template import TUTORIAL_TEXT_FILES
 
 
 def test_plot_crud_and_reorder(tmp_path: Path) -> None:
@@ -395,25 +396,16 @@ def test_tutorial_menu_archives_and_reloads_bundled_original(
     assert (archives[0] / edited_relative).read_text(encoding="utf-8") == "退避する内容"
     assert window.api.project is not None
     assert window.api.project.root == (tutorial_parent / SAMPLE_PROJECT_TITLE).resolve()
-    source = tutorial_resource_path()
-    source_files = {
-        path.relative_to(source): path.read_bytes()
-        for path in source.rglob("*")
-        if path.is_file()
-    }
-    recreated_files = {
-        path.relative_to(window.api.project.root): path.read_bytes()
-        for path in window.api.project.root.rglob("*")
-        if path.is_file()
-    }
-    assert recreated_files == source_files
+    assert tutorial_matches_template(window.api.project.root)
 
     direct_relative = window.api.project.chapters[0].episodes[0].body_file
     direct_body = window.api.project.root / direct_relative
     direct_body.write_text("削除対象", encoding="utf-8")
     monkeypatch.setattr(window, "_tutorial_recreation_choice", lambda: "recreate")
     action.trigger()
-    assert direct_body.read_bytes() == (source / direct_relative).read_bytes()
+    assert direct_body.read_bytes() == TUTORIAL_TEXT_FILES[direct_relative].encode(
+        "utf-8"
+    )
     assert list(projects_root.iterdir()) == archives
     window.close()
     app.processEvents()

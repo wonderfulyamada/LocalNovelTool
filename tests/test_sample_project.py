@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from PySide6.QtCore import QSettings
 
+import local_novel_tool.gui.sample_project as sample_project_module
 from local_novel_tool.core.api import CoreAPI
 from local_novel_tool.gui.sample_project import (
     SAMPLE_INITIALIZED_KEY,
@@ -16,8 +17,9 @@ from local_novel_tool.gui.sample_project import (
     initialize_sample_project,
     recreate_tutorial_project,
     tutorial_matches_bundled,
-    tutorial_resource_path,
 )
+from local_novel_tool.tutorial.generator import generate_tutorial, tutorial_matches_template
+from local_novel_tool.tutorial.template import TUTORIAL_PROJECT, TUTORIAL_TEXT_FILES
 
 
 def make_settings(path: Path) -> QSettings:
@@ -46,11 +48,8 @@ def assert_tutorial_contents(api: CoreAPI) -> None:
     assert {"episode", "reference"} <= hit_kinds
 
 
-def test_bundled_tutorial_is_a_readable_project(tmp_path: Path) -> None:
-    resource = tutorial_resource_path()
-    assert resource.name == "tutorial"
-    copied_resource = tmp_path / "tutorial"
-    shutil.copytree(resource, copied_resource)
+def test_generated_tutorial_is_a_readable_project(tmp_path: Path) -> None:
+    copied_resource = generate_tutorial(tmp_path / "tutorial")
     api = CoreAPI()
     api.open_project(copied_resource)
     assert_tutorial_contents(api)
@@ -59,16 +58,13 @@ def test_bundled_tutorial_is_a_readable_project(tmp_path: Path) -> None:
 def test_first_launch_copies_complete_tutorial_project(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     api = CoreAPI()
-    source = tutorial_resource_path()
-    source_metadata = (source / "project.json").read_bytes()
-
     project = initialize_sample_project(api, settings, tmp_path / "作品 保存先")
 
     assert project is not None
     assert project.root == (tmp_path / "作品 保存先" / SAMPLE_PROJECT_TITLE).resolve()
     assert settings.value(SAMPLE_INITIALIZED_KEY, False, bool)
     assert_tutorial_contents(api)
-    assert (source / "project.json").read_bytes() == source_metadata
+    assert tutorial_matches_template(project.root)
 
 
 def test_initialized_sample_is_not_created_again(tmp_path: Path, monkeypatch) -> None:
@@ -76,10 +72,10 @@ def test_initialized_sample_is_not_created_again(tmp_path: Path, monkeypatch) ->
     settings.setValue(SAMPLE_INITIALIZED_KEY, True)
     api = CoreAPI()
 
-    def unexpected_copy(*_args, **_kwargs):
+    def unexpected_generate(*_args, **_kwargs):
         raise AssertionError("sample was recreated")
 
-    monkeypatch.setattr(shutil, "copytree", unexpected_copy)
+    monkeypatch.setattr(sample_project_module, "generate_tutorial", unexpected_generate)
     assert initialize_sample_project(api, settings, tmp_path / "保存先") is None
 
 
@@ -96,20 +92,42 @@ def test_deleted_sample_is_not_recreated(tmp_path: Path) -> None:
     assert not (parent / SAMPLE_PROJECT_TITLE).exists()
 
 
-def test_failed_sample_creation_leaves_no_project_or_flag(tmp_path: Path) -> None:
+def test_failed_sample_creation_leaves_no_project_or_flag(
+    tmp_path: Path, monkeypatch
+) -> None:
     settings = make_settings(tmp_path)
     parent = tmp_path / "保存先"
-    broken_source = tmp_path / "壊れた原本"
-    broken_source.mkdir()
-    (broken_source / "project.json").write_text("{broken", encoding="utf-8")
     api = CoreAPI()
 
-    with pytest.raises(Exception):
-        initialize_sample_project(api, settings, parent, broken_source)
+    def fail_generation(target: Path) -> None:
+        target.mkdir()
+        (target / "project.json").write_text("{broken", encoding="utf-8")
+        raise OSError("generation failed")
+
+    monkeypatch.setattr(sample_project_module, "generate_tutorial", fail_generation)
+
+    with pytest.raises(OSError):
+        initialize_sample_project(api, settings, parent)
 
     assert not settings.value(SAMPLE_INITIALIZED_KEY, False, bool)
     assert not (parent / SAMPLE_PROJECT_TITLE).exists()
     assert api.project is None
+
+
+def test_failed_initial_generation_does_not_remove_existing_tutorial(
+    tmp_path: Path,
+) -> None:
+    settings = make_settings(tmp_path)
+    parent = tmp_path / "保存先"
+    target = parent / SAMPLE_PROJECT_TITLE
+    target.mkdir(parents=True)
+    marker = target / "ユーザー編集.txt"
+    marker.write_text("維持", encoding="utf-8")
+
+    with pytest.raises(FileExistsError):
+        initialize_sample_project(CoreAPI(), settings, parent)
+
+    assert marker.read_text(encoding="utf-8") == "維持"
 
 
 def test_recreate_tutorial_replaces_only_tutorial(tmp_path: Path) -> None:
@@ -133,7 +151,9 @@ def test_recreate_tutorial_replaces_only_tutorial(tmp_path: Path) -> None:
     assert_tutorial_contents(api)
 
 
-def test_failed_recreate_preserves_existing_tutorial(tmp_path: Path) -> None:
+def test_failed_recreate_preserves_existing_tutorial(
+    tmp_path: Path, monkeypatch
+) -> None:
     parent = tmp_path / "作品"
     settings = make_settings(tmp_path)
     api = CoreAPI()
@@ -142,8 +162,13 @@ def test_failed_recreate_preserves_existing_tutorial(tmp_path: Path) -> None:
     marker = tutorial.root / "編集済み.txt"
     marker.write_text("維持", encoding="utf-8")
 
-    with pytest.raises(FileNotFoundError):
-        recreate_tutorial_project(api, parent, tmp_path / "存在しない原本")
+    monkeypatch.setattr(
+        sample_project_module,
+        "generate_tutorial",
+        lambda _target: (_ for _ in ()).throw(OSError("generation failed")),
+    )
+    with pytest.raises(OSError):
+        recreate_tutorial_project(api, parent)
 
     assert marker.read_text(encoding="utf-8") == "維持"
 
@@ -194,7 +219,7 @@ def test_tutorial_matches_current_bundled_content_and_ignores_recent_history(
     tmp_path: Path,
 ) -> None:
     tutorial = tmp_path / "tutorial"
-    shutil.copytree(tutorial_resource_path(), tutorial)
+    generate_tutorial(tutorial)
     assert tutorial_matches_bundled(tutorial)
 
     metadata_path = tutorial / "project.json"
@@ -212,7 +237,7 @@ def test_tutorial_editable_text_change_is_not_initial_state(
     tmp_path: Path, content_kind: str
 ) -> None:
     tutorial = tmp_path / "tutorial"
-    shutil.copytree(tutorial_resource_path(), tutorial)
+    generate_tutorial(tutorial)
     metadata = json.loads(
         (tutorial / "project.json").read_text(encoding="utf-8")
     )
@@ -230,7 +255,7 @@ def test_tutorial_editable_text_change_is_not_initial_state(
 
 def test_tutorial_planning_metadata_change_is_not_initial_state(tmp_path: Path) -> None:
     tutorial = tmp_path / "tutorial"
-    shutil.copytree(tutorial_resource_path(), tutorial)
+    generate_tutorial(tutorial)
     metadata_path = tutorial / "project.json"
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     metadata["plot_items"][0]["content"] += "変更"
@@ -239,3 +264,29 @@ def test_tutorial_planning_metadata_change_is_not_initial_state(tmp_path: Path) 
     )
 
     assert not tutorial_matches_bundled(tutorial)
+
+
+def test_template_generates_complete_official_structure(tmp_path: Path) -> None:
+    root = generate_tutorial(tmp_path / "missing" / "LocalNovelTool チュートリアル")
+    metadata = json.loads((root / "project.json").read_text(encoding="utf-8"))
+    assert metadata == TUTORIAL_PROJECT
+    assert len(metadata["chapters"]) == 3
+    assert sum(len(chapter["episodes"]) for chapter in metadata["chapters"]) == 9
+    assert len(metadata["references"]) == 4
+    assert len(metadata["plot_items"]) == 3
+    assert len(metadata["timeline_items"]) == 3
+    assert set(TUTORIAL_TEXT_FILES) == {
+        path.relative_to(root).as_posix()
+        for path in root.rglob("*.txt")
+    }
+    api = CoreAPI()
+    api.open_project(root)
+    assert_tutorial_contents(api)
+
+
+def test_generation_has_no_resources_tutorial_dependency(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    root = generate_tutorial(tmp_path / "data" / SAMPLE_PROJECT_TITLE)
+    assert tutorial_matches_bundled(root)
