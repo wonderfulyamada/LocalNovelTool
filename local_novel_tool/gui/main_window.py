@@ -18,11 +18,13 @@ from local_novel_tool.core.api import CoreAPI
 from local_novel_tool.core.project import ProjectError
 from local_novel_tool.version import APP_NAME, APP_VERSION, AUTHOR_NAME
 from .editor_tab import TextEditorTab
+from .plot_tab import PlotTab
 from .preview_tab import PreviewTab
 from .project_tree import ProjectTree
 from .reference_tab import ReferenceTab
 from .sample_project import initialize_sample_project
 from .search_tab import SearchTab
+from .timeline_tab import TimelineTab
 
 
 class MainWindow(QMainWindow):
@@ -41,11 +43,15 @@ class MainWindow(QMainWindow):
         self.editor_tab = TextEditorTab(show_ruby_button=True)
         self.preview_tab = PreviewTab()
         self.note_tab = TextEditorTab()
+        self.plot_tab = PlotTab()
+        self.timeline_tab = TimelineTab()
         self.search_tab = SearchTab()
         self.reference_tab = ReferenceTab()
         self.tabs.addTab(self.editor_tab, "本文")
         self.tabs.addTab(self.preview_tab, "プレビュー")
         self.tabs.addTab(self.note_tab, "話メモ")
+        self.tabs.addTab(self.plot_tab, "展開")
+        self.tabs.addTab(self.timeline_tab, "時系列")
         self.tabs.addTab(self.search_tab, "文章検索")
         self.tabs.addTab(self.reference_tab, "資料")
 
@@ -109,6 +115,17 @@ class MainWindow(QMainWindow):
         self.reference_tab.rename_requested.connect(self.rename_reference)
         self.reference_tab.delete_requested.connect(self.delete_reference)
         self.reference_tab.save_requested.connect(self.save_reference)
+        self.plot_tab.open_requested.connect(self.open_plot_item)
+        self.plot_tab.create_requested.connect(self.create_plot_item)
+        self.plot_tab.rename_requested.connect(self.rename_plot_item)
+        self.plot_tab.delete_requested.connect(self.delete_plot_item)
+        self.plot_tab.save_requested.connect(self.save_plot_item)
+        self.plot_tab.reorder_requested.connect(self.reorder_plot_items)
+        self.timeline_tab.open_requested.connect(self.open_timeline_item)
+        self.timeline_tab.create_requested.connect(self.create_timeline_item)
+        self.timeline_tab.delete_requested.connect(self.delete_timeline_item)
+        self.timeline_tab.save_requested.connect(self.save_timeline_item)
+        self.timeline_tab.reorder_requested.connect(self.reorder_timeline_items)
 
     def _try_open_last_project(self) -> None:
         last = self.settings.value("last_project", "", str)
@@ -138,6 +155,8 @@ class MainWindow(QMainWindow):
         self.editor_tab.flush()
         self.note_tab.flush()
         self.reference_tab.flush()
+        self.plot_tab.flush()
+        self.timeline_tab.flush()
 
     def new_project(self) -> None:
         self._flush_editors()
@@ -175,6 +194,7 @@ class MainWindow(QMainWindow):
         self.current_episode_id = None
         self.tree.rebuild(project.chapters)
         self.refresh_references()
+        self.refresh_planning()
         self.setWindowTitle(f"{project.title} - {APP_NAME}")
         self.settings.setValue("last_project", str(project.root))
         self.statusBar().showMessage(str(project.root))
@@ -191,6 +211,11 @@ class MainWindow(QMainWindow):
     def refresh_references(self) -> None:
         if self.api.project:
             self.reference_tab.set_references(self.api.references(), self.api.recent_references())
+
+    def refresh_planning(self) -> None:
+        if self.api.project:
+            self.plot_tab.set_items(self.api.plot_items(), self.api.chapters())
+            self.timeline_tab.set_items(self.api.timeline_items())
 
     def add_chapter(self) -> None:
         if not self.api.project:
@@ -310,6 +335,14 @@ class MainWindow(QMainWindow):
             self.tabs.setCurrentWidget(self.reference_tab)
             self.open_reference(result.source_id)
             self.reference_tab.editor.setFocus()
+        elif result.kind == "plot":
+            self.tabs.setCurrentWidget(self.plot_tab)
+            self.open_plot_item(result.source_id)
+            self.plot_tab.content.setFocus()
+        elif result.kind == "timeline":
+            self.tabs.setCurrentWidget(self.timeline_tab)
+            self.open_timeline_item(result.source_id)
+            self.timeline_tab.content.setFocus()
 
     def open_reference(self, reference_id: str) -> None:
         if not self.api.project:
@@ -338,6 +371,83 @@ class MainWindow(QMainWindow):
 
     def save_reference(self, reference_id: str, text: str) -> None:
         self.api.save_reference(reference_id, text)
+
+    def open_plot_item(self, plot_id: str) -> None:
+        if self.api.project:
+            self.plot_tab.flush()
+            self.plot_tab.show_item(self.api.project.get_plot_item(plot_id))
+
+    def create_plot_item(self, title: str) -> None:
+        if self.api.project:
+            item = self.api.create_plot_item(title)
+            self.refresh_planning()
+            self.plot_tab.select_item(item.id)
+
+    def rename_plot_item(self, plot_id: str, title: str) -> None:
+        if not self.api.project:
+            return
+        item = self.api.project.get_plot_item(plot_id)
+        self.api.update_plot_item(
+            plot_id, title, item.content, item.chapter_id, item.episode_id
+        )
+        self.refresh_planning()
+        self.plot_tab.select_item(plot_id)
+
+    def delete_plot_item(self, plot_id: str) -> None:
+        if self.api.project:
+            self.api.delete_plot_item(plot_id)
+            self.refresh_planning()
+
+    def save_plot_item(
+        self,
+        plot_id: str,
+        title: str,
+        content: str,
+        chapter_id,
+        episode_id,
+    ) -> None:
+        if self.api.project:
+            self.api.update_plot_item(
+                plot_id, title, content, chapter_id, episode_id
+            )
+            saved = self.api.project.get_plot_item(plot_id)
+            self.plot_tab.update_item_label(plot_id, saved.title)
+
+    def reorder_plot_items(self, ordered_ids: list[str]) -> None:
+        if self.api.project:
+            self.api.reorder_plot_items(ordered_ids)
+
+    def open_timeline_item(self, timeline_id: str) -> None:
+        if self.api.project:
+            self.timeline_tab.flush()
+            self.timeline_tab.show_item(
+                self.api.project.get_timeline_item(timeline_id)
+            )
+
+    def create_timeline_item(self, point: str, title: str) -> None:
+        if self.api.project:
+            item = self.api.create_timeline_item(point, title)
+            self.refresh_planning()
+            self.timeline_tab.select_item(item.id)
+
+    def delete_timeline_item(self, timeline_id: str) -> None:
+        if self.api.project:
+            self.api.delete_timeline_item(timeline_id)
+            self.refresh_planning()
+
+    def save_timeline_item(
+        self, timeline_id: str, point: str, title: str, content: str
+    ) -> None:
+        if self.api.project:
+            self.api.update_timeline_item(timeline_id, point, title, content)
+            saved = self.api.project.get_timeline_item(timeline_id)
+            self.timeline_tab.update_item_label(
+                timeline_id, saved.point, saved.title
+            )
+
+    def reorder_timeline_items(self, ordered_ids: list[str]) -> None:
+        if self.api.project:
+            self.api.reorder_timeline_items(ordered_ids)
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
         self._flush_editors()

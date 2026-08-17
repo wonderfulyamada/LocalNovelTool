@@ -7,11 +7,12 @@ from pathlib import Path
 from typing import Any
 
 from .events import EventBus
-from .models import Chapter, Episode, Reference, SearchResult
+from .models import Chapter, Episode, PlotItem, Reference, SearchResult, TimelineItem
 
 PROJECT_FILE = "project.json"
 FORMAT_VERSION = 1
-REFERENCE_CATEGORIES = ("キャラ", "世界観", "展開", "その他")
+REFERENCE_CATEGORIES = ("登場人物", "アイテム", "世界観", "その他")
+LEGACY_REFERENCE_CATEGORIES = {"キャラ": "登場人物", "展開": "その他"}
 PROJECT_FOLDERS = ("manuscript", "episode_notes", "references", "backups")
 INVALID_PROJECT_NAME_CHARS = frozenset('<>:"/\\|?*')
 WINDOWS_RESERVED_NAMES = {
@@ -31,7 +32,15 @@ class NovelProject:
         self.title = str(data.get("title", self.root.name))
         self.chapters = [Chapter.from_dict(item) for item in data.get("chapters", [])]
         self.references = [Reference.from_dict(item) for item in data.get("references", [])]
+        for reference in self.references:
+            reference.category = LEGACY_REFERENCE_CATEGORIES.get(
+                reference.category, reference.category
+            )
         self.recent_references: list[str] = list(data.get("recent_references", []))
+        self.plot_items = [PlotItem.from_dict(item) for item in data.get("plot_items", [])]
+        self.timeline_items = [
+            TimelineItem.from_dict(item) for item in data.get("timeline_items", [])
+        ]
         self.events = EventBus()
 
     @classmethod
@@ -97,6 +106,8 @@ class NovelProject:
             "chapters": [chapter.to_dict() for chapter in self.chapters],
             "references": [ref.to_dict() for ref in self.references],
             "recent_references": self.recent_references[:20],
+            "plot_items": [item.to_dict() for item in self.plot_items],
+            "timeline_items": [item.to_dict() for item in self.timeline_items],
         }
 
     def save_metadata(self) -> None:
@@ -294,6 +305,107 @@ class NovelProject:
         mapping = {ref.id: ref for ref in self.references}
         return [mapping[item] for item in self.recent_references if item in mapping]
 
+    def create_plot_item(
+        self,
+        title: str,
+        content: str = "",
+        chapter_id: str | None = None,
+        episode_id: str | None = None,
+    ) -> PlotItem:
+        item = PlotItem(
+            id=self._new_id("plot"),
+            title=title.strip() or "新しい展開",
+            content=content,
+            chapter_id=chapter_id,
+            episode_id=episode_id,
+        )
+        self.plot_items.append(item)
+        self.save_metadata()
+        self.events.emit("plot.created", plot_id=item.id)
+        return item
+
+    def get_plot_item(self, plot_id: str) -> PlotItem:
+        for item in self.plot_items:
+            if item.id == plot_id:
+                return item
+        raise ProjectError("展開が見つかりません。")
+
+    def update_plot_item(
+        self,
+        plot_id: str,
+        title: str,
+        content: str,
+        chapter_id: str | None,
+        episode_id: str | None,
+    ) -> None:
+        item = self.get_plot_item(plot_id)
+        item.title = title.strip() or item.title
+        item.content = content
+        item.chapter_id = chapter_id
+        item.episode_id = episode_id
+        self.save_metadata()
+        self.events.emit("plot.updated", plot_id=plot_id)
+
+    def delete_plot_item(self, plot_id: str) -> None:
+        self.get_plot_item(plot_id)
+        self.plot_items = [item for item in self.plot_items if item.id != plot_id]
+        self.save_metadata()
+        self.events.emit("plot.deleted", plot_id=plot_id)
+
+    def reorder_plot_items(self, ordered_ids: list[str]) -> None:
+        mapping = {item.id: item for item in self.plot_items}
+        if len(ordered_ids) != len(set(ordered_ids)) or set(ordered_ids) != set(mapping):
+            raise ProjectError("展開の並び替え情報が不正です。")
+        self.plot_items = [mapping[item_id] for item_id in ordered_ids]
+        self.save_metadata()
+        self.events.emit("plot.reordered")
+
+    def create_timeline_item(
+        self, point: str, title: str, content: str = ""
+    ) -> TimelineItem:
+        item = TimelineItem(
+            id=self._new_id("time"),
+            point=point.strip(),
+            title=title.strip() or "新しい時系列",
+            content=content,
+        )
+        self.timeline_items.append(item)
+        self.save_metadata()
+        self.events.emit("timeline.created", timeline_id=item.id)
+        return item
+
+    def get_timeline_item(self, timeline_id: str) -> TimelineItem:
+        for item in self.timeline_items:
+            if item.id == timeline_id:
+                return item
+        raise ProjectError("時系列が見つかりません。")
+
+    def update_timeline_item(
+        self, timeline_id: str, point: str, title: str, content: str
+    ) -> None:
+        item = self.get_timeline_item(timeline_id)
+        item.point = point.strip()
+        item.title = title.strip() or item.title
+        item.content = content
+        self.save_metadata()
+        self.events.emit("timeline.updated", timeline_id=timeline_id)
+
+    def delete_timeline_item(self, timeline_id: str) -> None:
+        self.get_timeline_item(timeline_id)
+        self.timeline_items = [
+            item for item in self.timeline_items if item.id != timeline_id
+        ]
+        self.save_metadata()
+        self.events.emit("timeline.deleted", timeline_id=timeline_id)
+
+    def reorder_timeline_items(self, ordered_ids: list[str]) -> None:
+        mapping = {item.id: item for item in self.timeline_items}
+        if len(ordered_ids) != len(set(ordered_ids)) or set(ordered_ids) != set(mapping):
+            raise ProjectError("時系列の並び替え情報が不正です。")
+        self.timeline_items = [mapping[item_id] for item_id in ordered_ids]
+        self.save_metadata()
+        self.events.emit("timeline.reordered")
+
     def search(self, query: str) -> list[SearchResult]:
         needle = query.strip().casefold()
         if not needle:
@@ -319,8 +431,45 @@ class NovelProject:
                 scan("episode", episode.id, episode.title, chapter.title, self.load_episode_body(episode.id))
                 scan("episode_note", episode.id, f"{episode.title} / 話メモ", chapter.title, self.load_episode_note(episode.id))
         for ref in self.references:
-            scan("reference", ref.id, ref.title, ref.category, self.read_text(ref.file))
+            scan(
+                "reference",
+                ref.id,
+                ref.title,
+                ref.category,
+                f"{ref.title}\n{self.read_text(ref.file)}",
+            )
+        for item in self.plot_items:
+            related = self._plot_related_label(item)
+            scan("plot", item.id, item.title, related, f"{item.title}\n{item.content}")
+        for item in self.timeline_items:
+            scan(
+                "timeline",
+                item.id,
+                item.title,
+                item.point,
+                f"{item.title}\n{item.content}",
+            )
         return results
+
+    def _plot_related_label(self, item: PlotItem) -> str:
+        chapter = next(
+            (chapter for chapter in self.chapters if chapter.id == item.chapter_id), None
+        )
+        episode = next(
+            (
+                episode
+                for chapter_item in self.chapters
+                for episode in chapter_item.episodes
+                if episode.id == item.episode_id
+            ),
+            None,
+        )
+        return " / ".join(
+            label for label in (
+                chapter.title if chapter else "",
+                episode.title if episode else "",
+            ) if label
+        )
 
     def backup(self) -> Path:
         backup_dir = self.root / "backups"
