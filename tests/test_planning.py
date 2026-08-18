@@ -965,8 +965,7 @@ def test_project_actions_follow_project_and_tree_selection(
     assert not window.delete_action.isEnabled()
     assert window.editor_tab.editor.isReadOnly()
     assert window.note_tab.editor.isReadOnly()
-    assert all(not window.tabs.isTabEnabled(index) for index in (0, 1, 2))
-    assert all(window.tabs.isTabEnabled(index) for index in (3, 4, 5, 6))
+    assert all(window.tabs.isTabEnabled(index) for index in range(7))
 
     chapter = window.api.create_chapter("自由な章")
     window.refresh_tree()
@@ -976,7 +975,7 @@ def test_project_actions_follow_project_and_tree_selection(
     assert window.rename_action.isEnabled()
     assert window.delete_action.isEnabled()
     assert window.editor_tab.editor.isReadOnly()
-    assert all(not window.tabs.isTabEnabled(index) for index in (0, 1, 2))
+    assert all(window.tabs.isTabEnabled(index) for index in range(7))
 
     episode = window.api.create_episode(chapter.id, "自由な話")
     window.refresh_tree()
@@ -988,6 +987,27 @@ def test_project_actions_follow_project_and_tree_selection(
     assert not window.editor_tab.editor.isReadOnly()
     assert not window.note_tab.editor.isReadOnly()
     assert all(window.tabs.isTabEnabled(index) for index in range(7))
+
+    chapter_item = window.tree.topLevelItem(0)
+    for tab in (
+        window.editor_tab,
+        window.preview_tab,
+        window.reference_tab,
+        window.plot_tab,
+        window.timeline_tab,
+    ):
+        window.tree.select_episode(episode.id)
+        app.processEvents()
+        window.tabs.setCurrentWidget(tab)
+        window.tree.setCurrentItem(chapter_item)
+        app.processEvents()
+        assert window.tabs.currentWidget() is tab
+
+    window.tabs.setCurrentWidget(window.preview_tab)
+    window.tree.select_episode(episode.id)
+    app.processEvents()
+    assert window.current_episode_id == episode.id
+    assert window.tabs.currentWidget() is window.preview_tab
 
     window.api.delete_episode(episode.id)
     window.current_episode_id = None

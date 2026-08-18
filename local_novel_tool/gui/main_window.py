@@ -446,7 +446,7 @@ class MainWindow(QMainWindow):
         self.delete_action.setEnabled(item_selected)
         self._set_episode_editors_enabled(bool(episode_selected))
         for index in (0, 1, 2):
-            self.tabs.setTabEnabled(index, bool(episode_selected))
+            self.tabs.setTabEnabled(index, has_project)
         for index in (3, 4, 5, 6):
             self.tabs.setTabEnabled(index, has_project)
 
