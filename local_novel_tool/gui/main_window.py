@@ -232,6 +232,21 @@ class MainWindow(QMainWindow):
         self._try_open_initial_project()
         self._update_action_states()
 
+    def _ensure_projects_root_available(self) -> bool:
+        configured = self.settings.value(PROJECTS_ROOT_KEY, "", str).strip()
+        if not configured or Path(configured).is_dir():
+            return True
+        QMessageBox.warning(self, "作品フォルダが見つかりません", "設定されている作品フォルダが見つかりません。\n新しい保存場所を選択してください。")
+        folder = QFileDialog.getExistingDirectory(self, "作品の保存フォルダを選択", configured)
+        if not folder:
+            return False
+        replacement = Path(folder)
+        if not replacement.is_dir() or not os.access(replacement, os.W_OK):
+            QMessageBox.warning(self, "設定できません", "書き込み可能なフォルダを選択してください。")
+            return False
+        self._set_projects_parent(replacement)
+        return True
+
     @staticmethod
     def _application_root() -> Path:
         executable = Path(sys.executable).resolve()
@@ -479,6 +494,8 @@ class MainWindow(QMainWindow):
                 pass
 
     def _try_open_initial_project(self) -> None:
+        if not self._ensure_projects_root_available():
+            return
         if not self.settings.value(SAMPLE_INITIALIZED_KEY, False, bool):
             existing = bool(self.settings.value("last_project", "", str)) or bool(
                 self.settings.value(PROJECTS_ROOT_KEY, "", str)
