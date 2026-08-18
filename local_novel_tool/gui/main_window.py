@@ -53,6 +53,7 @@ CONTENT_FONT_SIZE_KEY = "content_font_size"
 DEFAULT_CONTENT_FONT_SIZE = 14
 SETTINGS_VERSION_KEY = "Meta/settings_version"
 SETTINGS_VERSION = 1
+INITIAL_SETUP_COMPLETED_KEY = "initial_setup_completed"
 
 
 class NewProjectDialog(QDialog):
@@ -265,6 +266,11 @@ class MainWindow(QMainWindow):
             for key in (SAMPLE_INITIALIZED_KEY, PROJECTS_ROOT_KEY, "last_project", CONTENT_FONT_SIZE_KEY):
                 if legacy.contains(key):
                     settings.setValue(key, legacy.value(key))
+        if (
+            not settings.contains(INITIAL_SETUP_COMPLETED_KEY)
+            and settings.value(SAMPLE_INITIALIZED_KEY, False, bool)
+        ):
+            settings.setValue(INITIAL_SETUP_COMPLETED_KEY, True)
         settings.setValue(SETTINGS_VERSION_KEY, SETTINGS_VERSION)
         settings.sync()
         if settings.status() != QSettings.Status.NoError:
@@ -499,35 +505,36 @@ class MainWindow(QMainWindow):
     def _try_open_initial_project(self) -> None:
         if not self._ensure_projects_root_available():
             return
-        if not self.settings.value(SAMPLE_INITIALIZED_KEY, False, bool):
-            existing = bool(self.settings.value("last_project", "", str)) or bool(
-                self.settings.value(PROJECTS_ROOT_KEY, "", str)
-            )
-            if not existing:
-                selected_root = self._default_projects_parent()
-                while True:
-                    dialog = FirstLaunchDialog(
-                        selected_root, self._default_projects_parent(), self
-                    )
-                    if dialog.exec() != QDialog.DialogCode.Accepted:
-                        return
-                    selected_root = dialog.selected_root()
-                    try:
-                        if not selected_root.is_absolute():
-                            raise ProjectError("有効な保存先を選択してください。")
-                        selected_root.mkdir(parents=True, exist_ok=True)
-                        if not selected_root.is_dir() or not os.access(selected_root, os.W_OK):
-                            raise ProjectError("作品の保存フォルダへ書き込めません。")
-                        sample = initialize_sample_project(
-                            self.api, self.settings, selected_root
-                        )
-                    except Exception as exc:
-                        show_error(self, "サンプル作成失敗", str(exc))
-                        continue
-                    self._set_projects_parent(selected_root)
-                    if sample is not None:
-                        self._after_project_loaded()
+        if not self.settings.value(INITIAL_SETUP_COMPLETED_KEY, False, bool):
+            selected_root = self._default_projects_parent()
+            while True:
+                dialog = FirstLaunchDialog(
+                    selected_root, self._default_projects_parent(), self
+                )
+                if dialog.exec() != QDialog.DialogCode.Accepted:
                     return
+                selected_root = dialog.selected_root()
+                try:
+                    if not selected_root.is_absolute():
+                        raise ProjectError("有効な保存先を選択してください。")
+                    selected_root.mkdir(parents=True, exist_ok=True)
+                    if not selected_root.is_dir() or not os.access(selected_root, os.W_OK):
+                        raise ProjectError("作品の保存フォルダへ書き込めません。")
+                    sample = initialize_sample_project(
+                        self.api, self.settings, selected_root
+                    )
+                    if sample is None or self.api.project is None:
+                        raise ProjectError("チュートリアルを開けませんでした。")
+                    self._set_projects_parent(selected_root)
+                    self._after_project_loaded()
+                    self.settings.setValue(INITIAL_SETUP_COMPLETED_KEY, True)
+                    self.settings.sync()
+                except Exception as exc:
+                    self.settings.setValue(INITIAL_SETUP_COMPLETED_KEY, False)
+                    self.settings.sync()
+                    show_error(self, "サンプル作成失敗", str(exc))
+                    continue
+                return
         try:
             sample = initialize_sample_project(
                 self.api, self.settings, self._tutorial_parent()
