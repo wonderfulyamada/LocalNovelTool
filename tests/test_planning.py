@@ -1061,8 +1061,8 @@ def test_manual_backup_uses_default_external_root_and_reports_result(
         lambda *_args: (_ for _ in ()).throw(OSError("書き込み不能")),
     )
     monkeypatch.setattr(
-        main_window_module.QMessageBox,
-        "critical",
+        main_window_module,
+        "show_error",
         lambda _parent, title, text: errors.append((title, text)),
     )
     window.create_backup()

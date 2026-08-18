@@ -31,6 +31,7 @@ from local_novel_tool.core.recovery import RecoveryEntry, RecoveryStore
 from local_novel_tool.version import APP_NAME, APP_VERSION, AUTHOR_NAME
 from .backup_worker import BackupWorker
 from .editor_tab import TextEditorTab
+from .error_dialog import show_error
 from .plot_tab import PlotTab
 from .preview_tab import PreviewTab
 from .project_tree import ProjectTree
@@ -142,9 +143,7 @@ class SettingsDialog(QDialog):
             return
         path = Path(folder)
         if not path.is_dir() or not os.access(path, os.W_OK):
-            QMessageBox.warning(
-                self, "設定できません", "書き込み可能なフォルダを選択してください。"
-            )
+            show_error(self, "設定できません", "書き込み可能なフォルダを選択してください。")
             return
         self.path_edit.setText(str(path))
 
@@ -154,14 +153,12 @@ class SettingsDialog(QDialog):
     def accept(self) -> None:
         path = self.selected_root()
         if not path.is_absolute():
-            QMessageBox.warning(self, "設定できません", "有効な保存先を選択してください。")
+            show_error(self, "設定できません", "有効な保存先を選択してください。")
             return
         if path != self.default_root and (
             not path.is_dir() or not os.access(path, os.W_OK)
         ):
-            QMessageBox.warning(
-                self, "設定できません", "書き込み可能なフォルダを選択してください。"
-            )
+            show_error(self, "設定できません", "書き込み可能なフォルダを選択してください。")
             return
         super().accept()
 
@@ -239,13 +236,13 @@ class MainWindow(QMainWindow):
         configured = self.settings.value(PROJECTS_ROOT_KEY, "", str).strip()
         if not configured or Path(configured).is_dir():
             return True
-        QMessageBox.warning(self, "作品フォルダが見つかりません", "設定されている作品フォルダが見つかりません。\n新しい保存場所を選択してください。")
+        show_error(self, "作品フォルダが見つかりません", "設定されている作品フォルダが見つかりません。\n新しい保存場所を選択してください。")
         folder = QFileDialog.getExistingDirectory(self, "作品の保存フォルダを選択", configured)
         if not folder:
             return False
         replacement = Path(folder)
         if not replacement.is_dir() or not os.access(replacement, os.W_OK):
-            QMessageBox.warning(self, "設定できません", "書き込み可能なフォルダを選択してください。")
+            show_error(self, "設定できません", "書き込み可能なフォルダを選択してください。")
             return False
         self._set_projects_parent(replacement)
         return True
@@ -525,7 +522,7 @@ class MainWindow(QMainWindow):
                             self.api, self.settings, selected_root
                         )
                     except Exception as exc:
-                        QMessageBox.warning(self, "サンプル作成失敗", str(exc))
+                        show_error(self, "サンプル作成失敗", str(exc))
                         continue
                     self._set_projects_parent(selected_root)
                     if sample is not None:
@@ -536,7 +533,7 @@ class MainWindow(QMainWindow):
                 self.api, self.settings, self._tutorial_parent()
             )
         except Exception as exc:
-            QMessageBox.warning(self, "サンプル作成失敗", str(exc))
+            show_error(self, "サンプル作成失敗", str(exc))
         else:
             if sample is not None:
                 self._after_project_loaded()
@@ -626,7 +623,7 @@ class MainWindow(QMainWindow):
                     tutorial_root, self._projects_parent()
                 )
             except Exception as exc:
-                QMessageBox.critical(self, "退避失敗", str(exc))
+                show_error(self, "退避失敗", str(exc))
                 return
 
         load_recreated = current is None or tutorial_is_current
@@ -640,7 +637,7 @@ class MainWindow(QMainWindow):
             if archived:
                 self.statusBar().showMessage(f"退避先: {archived}")
         except Exception as exc:
-            QMessageBox.critical(self, "再作成失敗", str(exc))
+            show_error(self, "再作成失敗", str(exc))
 
     def _confirm_recreate_current_tutorial(self) -> bool:
         message = QMessageBox(self)
@@ -728,7 +725,7 @@ class MainWindow(QMainWindow):
                     self.timeline_tab.content.toPlainText(),
                 )
         except Exception as exc:
-            QMessageBox.critical(self, "保存失敗", str(exc))
+            show_error(self, "保存失敗", str(exc))
             return False
         self.editor_tab.mark_saved()
         self.note_tab.mark_saved()
@@ -759,9 +756,9 @@ class MainWindow(QMainWindow):
             self.api.create_project(projects_parent, title)
             self._after_project_loaded()
         except ProjectError as exc:
-            QMessageBox.warning(self, "作成できません", str(exc))
+            show_error(self, "作成できません", str(exc))
         except Exception as exc:
-            QMessageBox.critical(self, "作成失敗", str(exc))
+            show_error(self, "作成失敗", str(exc))
 
     def open_project(self) -> None:
         self._flush_editors()
@@ -810,7 +807,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"バックアップ: {destination}")
 
     def _backup_failed(self, message: str) -> None:
-        QMessageBox.critical(self, "バックアップ失敗", message)
+        show_error(self, "バックアップ失敗", message)
         self.statusBar().showMessage("バックアップに失敗しました")
 
     def _backup_finished(self) -> None:
@@ -827,7 +824,7 @@ class MainWindow(QMainWindow):
             self.api.open_project(root)
             self._after_project_loaded()
         except Exception as exc:
-            QMessageBox.critical(self, "読込失敗", str(exc))
+            show_error(self, "読込失敗", str(exc))
 
     def _after_project_loaded(self) -> None:
         project = self.api.project
@@ -1041,7 +1038,7 @@ class MainWindow(QMainWindow):
             self.preview_tab.set_source_text(self.editor_tab.editor.toPlainText())
         self._update_action_states()
         if errors:
-            QMessageBox.warning(self, "データ読込エラー", "\n".join(errors))
+            show_error(self, "データ読込エラー", "\n".join(errors))
 
     def _set_episode_editors_enabled(self, enabled: bool) -> None:
         self.editor_tab.editor.setReadOnly(not enabled)
@@ -1079,7 +1076,7 @@ class MainWindow(QMainWindow):
             self.api.reorder_structure(order)
             self.refresh_tree()
         except ProjectError as exc:
-            QMessageBox.warning(self, "移動できません", str(exc))
+            show_error(self, "移動できません", str(exc))
             self.refresh_tree()
 
     def perform_search(self, query: str) -> None:
@@ -1087,7 +1084,7 @@ class MainWindow(QMainWindow):
             self.search_tab.set_results(self.api.search(query))
             errors = self.api.content_errors()
             if errors:
-                QMessageBox.warning(
+                show_error(
                     self,
                     "データ読込エラー",
                     "\n".join(str(error) for error in errors),
@@ -1121,7 +1118,7 @@ class MainWindow(QMainWindow):
             text = self.api.load_reference(reference_id)
         except ProjectContentError as exc:
             text = ""
-            QMessageBox.warning(self, "データ読込エラー", str(exc))
+            show_error(self, "データ読込エラー", str(exc))
         self.reference_tab.show_reference(ref, text)
         self.refresh_references()
 
