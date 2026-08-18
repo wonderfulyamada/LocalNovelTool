@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, QStandardPaths, QThread, Qt, QUrl
@@ -49,6 +50,8 @@ from .timeline_tab import TimelineTab
 PROJECTS_ROOT_KEY = "projects_root"
 CONTENT_FONT_SIZE_KEY = "content_font_size"
 DEFAULT_CONTENT_FONT_SIZE = 14
+SETTINGS_VERSION_KEY = "Meta/settings_version"
+SETTINGS_VERSION = 1
 
 
 class NewProjectDialog(QDialog):
@@ -185,11 +188,9 @@ class MainWindow(QMainWindow):
         self._dirty_sources: set[str] = set()
         self._backup_thread: QThread | None = None
         self._backup_worker: BackupWorker | None = None
-        config_dir = Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppConfigLocation))
-        config_dir.mkdir(parents=True, exist_ok=True)
-        self.settings = QSettings(str(config_dir / "settings.ini"), QSettings.Format.IniFormat)
-        app_data = Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppLocalDataLocation))
-        self.recovery_store = RecoveryStore(app_data / "Recovery")
+        self.application_root = self._application_root()
+        self.settings = self._load_portable_settings()
+        self.recovery_store = RecoveryStore(self.application_root / "recovery")
 
         self.tree = ProjectTree()
         self.tabs = QTabWidget()
@@ -230,6 +231,30 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("作品を新規作成するか開いてください。")
         self._try_open_initial_project()
         self._update_action_states()
+
+    @staticmethod
+    def _application_root() -> Path:
+        executable = Path(sys.executable).resolve()
+        if executable.name.lower() == "localnoveltool.exe":
+            return executable.parent
+        return Path(__file__).resolve().parents[2]
+
+    def _load_portable_settings(self) -> QSettings:
+        path = self.application_root / "settings.ini"
+        if path.exists():
+            settings = QSettings(str(path), QSettings.Format.IniFormat)
+        else:
+            legacy_dir = Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppConfigLocation))
+            legacy = QSettings(str(legacy_dir / "settings.ini"), QSettings.Format.IniFormat)
+            settings = QSettings(str(path), QSettings.Format.IniFormat)
+            for key in (SAMPLE_INITIALIZED_KEY, PROJECTS_ROOT_KEY, "last_project", CONTENT_FONT_SIZE_KEY):
+                if legacy.contains(key):
+                    settings.setValue(key, legacy.value(key))
+        settings.setValue(SETTINGS_VERSION_KEY, SETTINGS_VERSION)
+        settings.sync()
+        if settings.status() != QSettings.Status.NoError:
+            raise RuntimeError("LocalNovelToolのフォルダに設定を書き込めません。書き込み可能な場所へLocalNovelToolフォルダを移動してください。")
+        return settings
 
     def _build_toolbar(self) -> None:
         toolbar = QToolBar("メイン")
