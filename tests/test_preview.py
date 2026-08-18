@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 
 import local_novel_tool.gui.preview_tab as preview_module
@@ -62,3 +63,36 @@ def test_preview_tab_switches_writing_mode(monkeypatch) -> None:
     assert tab.vertical_button.isChecked()
     assert 'class="vertical"' in tab.view.rendered
     assert "<ruby>白雨<rt>しらさめ</rt></ruby><br>" in tab.view.rendered
+
+
+def test_rapid_font_size_changes_coalesce_to_final_vertical_ruby_render(monkeypatch) -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class FakeWebView(QWidget):
+        def __init__(self) -> None:
+            super().__init__()
+            self.rendered = ""
+            self.render_count = 0
+
+        def setHtml(self, rendered: str) -> None:  # noqa: N802
+            self.rendered = rendered
+            self.render_count += 1
+
+    monkeypatch.setattr(preview_module, "QWebEngineView", FakeWebView)
+    tab = preview_module.PreviewTab()
+    tab.set_source_text("｜白雨《しらさめ》を抜いた。")
+    tab.vertical_button.click()
+    initial_renders = tab.view.render_count
+
+    for size in (15, 16, 17, 18, 17, 16, 19, 20, 19, 21):
+        tab.set_content_font_size(size)
+
+    assert tab.view.render_count == initial_renders
+    QTest.qWait(80)
+    app.processEvents()
+
+    assert tab._content_font_size == 21
+    assert tab.view.render_count == initial_renders + 1
+    assert "font-size: 21pt" in tab.view.rendered
+    assert 'class="vertical"' in tab.view.rendered
+    assert "<ruby>白雨<rt>しらさめ</rt></ruby>" in tab.view.rendered

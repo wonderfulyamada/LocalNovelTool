@@ -681,6 +681,9 @@ def test_project_storage_settings_are_available_without_any_project(
         def selected_root(self) -> Path:
             return custom_root
 
+        def content_font_size(self) -> int:
+            return 18
+
     monkeypatch.setattr(main_window_module, "SettingsDialog", FakeSettingsDialog)
     window = main_window_module.MainWindow()
     window.settings = QSettings(
@@ -692,6 +695,7 @@ def test_project_storage_settings_are_available_without_any_project(
     assert window.settings_action.isEnabled()
     window.settings_action.trigger()
     assert window._projects_parent() == custom_root
+    assert window.content_font_size_spin.value() == 18
     assert window.api.project is None
     assert not tutorial_parent.exists()
     window.close()

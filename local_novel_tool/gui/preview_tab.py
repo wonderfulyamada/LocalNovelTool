@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import re
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QHBoxLayout, QRadioButton, QTextBrowser, QVBoxLayout, QWidget
 
 RUBY_PATTERN = re.compile(r"｜([^《》\n]+)《([^《》\n]+)》")
@@ -39,6 +40,10 @@ class PreviewTab(QWidget):
         super().__init__()
         self._source_text = ""
         self._content_font_size = 14
+        self._font_render_timer = QTimer(self)
+        self._font_render_timer.setSingleShot(True)
+        self._font_render_timer.setInterval(50)
+        self._font_render_timer.timeout.connect(self._render)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
@@ -63,13 +68,17 @@ class PreviewTab(QWidget):
 
     def set_source_text(self, text: str) -> None:
         self._source_text = text
+        self._font_render_timer.stop()
         self._render()
 
     def set_content_font_size(self, size: int) -> None:
+        if self._content_font_size == size:
+            return
         self._content_font_size = size
-        self._render()
+        self._font_render_timer.start()
 
     def _writing_mode_changed(self, _checked: bool) -> None:
+        self._font_render_timer.stop()
         self._render()
 
     def _render(self) -> None:
