@@ -191,6 +191,9 @@ class MainWindow(QMainWindow):
         self.application_root = self._application_root()
         self.settings = self._load_portable_settings()
         self.recovery_store = RecoveryStore(self.application_root / "recovery")
+        legacy_root = Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppLocalDataLocation)) / "Recovery"
+        self.legacy_recovery_store = RecoveryStore(legacy_root)
+        self._restored_recovery_stores: dict[tuple[str, str], RecoveryStore] = {}
 
         self.tree = ProjectTree()
         self.tabs = QTabWidget()
@@ -481,6 +484,9 @@ class MainWindow(QMainWindow):
         current = self._recovery_identity_and_content(source)
         if current is not None:
             self.recovery_store.remove(self.api.project.root, source, current[0])
+            store = self._restored_recovery_stores.pop((source, current[0]), None)
+            if store is not None:
+                store.remove(self.api.project.root, source, current[0])
 
     def _has_unsaved_changes(self) -> bool:
         return bool(self._dirty_sources)
@@ -877,19 +883,21 @@ class MainWindow(QMainWindow):
     def _offer_recovery(self) -> None:
         if not self.api.project:
             return
-        for entry in self.recovery_store.load(self.api.project.root):
-            try:
-                current = self._canonical_recovery_content(entry)
-            except (ProjectError, ProjectContentError):
-                continue
-            if current == entry.content:
-                self.recovery_store.remove(self.api.project.root, entry.source, entry.item_id)
-                continue
-            if self._confirm_recovery(entry):
-                self._restore_recovery(entry)
-            else:
-                self.recovery_store.remove(self.api.project.root, entry.source, entry.item_id)
-            break
+        for store in (self.recovery_store, self.legacy_recovery_store):
+            for entry in store.load(self.api.project.root):
+                try:
+                    current = self._canonical_recovery_content(entry)
+                except (ProjectError, ProjectContentError):
+                    continue
+                if current == entry.content:
+                    store.remove(self.api.project.root, entry.source, entry.item_id)
+                    continue
+                if self._confirm_recovery(entry):
+                    self._restored_recovery_stores[(entry.source, entry.item_id)] = store
+                    self._restore_recovery(entry)
+                else:
+                    store.remove(self.api.project.root, entry.source, entry.item_id)
+                return
 
     def _restore_recovery(self, entry: RecoveryEntry) -> None:
         if entry.source in ("body", "note"):
