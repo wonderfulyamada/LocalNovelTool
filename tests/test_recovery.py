@@ -90,3 +90,30 @@ def test_recovery_separates_projects_and_episodes(tmp_path):
 
     assert {(item.source, item.item_id, item.content) for item in store.load(first)} == {("body", "ep-1", "A1"), ("note", "ep-2", "A2")}
     assert [(item.source, item.item_id, item.content) for item in store.load(second)] == [("body", "ep-1", "B1")]
+
+
+def test_legacy_recovery_restore_ignore_and_same_content_cleanup(tmp_path, monkeypatch):
+    _app, window, project, episode = make_window(tmp_path, monkeypatch)
+    legacy = RecoveryStore(tmp_path / "legacy-appdata" / "Recovery")
+    window.legacy_recovery_store = legacy
+    project.save_episode_body(episode.id, "正本")
+    legacy.save(project.root, "body", episode.id, "正本")
+    monkeypatch.setattr(window, "_confirm_recovery", lambda _entry: pytest.fail("same content prompt"))
+    window._offer_recovery()
+    assert legacy.load(project.root) == []
+
+    legacy.save(project.root, "body", episode.id, "旧Recovery")
+    legacy.save(project.root, "note", episode.id, "別のRecovery")
+    monkeypatch.setattr(window, "_confirm_recovery", lambda _entry: True)
+    window._offer_recovery()
+    assert window.editor_tab.editor.toPlainText() == "旧Recovery"
+    assert project.load_episode_body(episode.id) == "正本"
+    assert len(legacy.load(project.root)) == 2
+    window.save_current_body("旧Recovery")
+    assert project.load_episode_body(episode.id) == "旧Recovery"
+    assert [(item.source, item.content) for item in legacy.load(project.root)] == [("note", "別のRecovery")]
+
+    monkeypatch.setattr(window, "_confirm_recovery", lambda _entry: False)
+    window._offer_recovery()
+    assert legacy.load(project.root) == []
+    window.close()
