@@ -985,7 +985,7 @@ def test_project_actions_follow_project_and_tree_selection(
     window.refresh_tree()
     window.tree.select_episode(episode.id)
     app.processEvents()
-    assert not window.add_episode_action.isEnabled()
+    assert window.add_episode_action.isEnabled()
     assert window.rename_action.isEnabled()
     assert window.delete_action.isEnabled()
     assert not window.editor_tab.editor.isReadOnly()
@@ -1025,6 +1025,66 @@ def test_project_actions_follow_project_and_tree_selection(
     assert not window.delete_action.isEnabled()
     assert project.chapters[0].episodes == []
     window._dirty_sources.clear()
+    window.close()
+    app.processEvents()
+
+
+
+def test_add_episode_uses_selected_episode_position_without_changing_tab(
+    tmp_path: Path, monkeypatch
+) -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class FakeWebView(QWidget):
+        def setHtml(self, _rendered: str) -> None:  # noqa: N802
+            pass
+
+    monkeypatch.setattr(preview_module, "QWebEngineView", FakeWebView)
+    monkeypatch.setattr(
+        main_window_module.MainWindow, "_try_open_initial_project", lambda self: None
+    )
+    monkeypatch.setattr(
+        main_window_module.QInputDialog,
+        "getText",
+        lambda *_args, **_kwargs: ("新しい話", True),
+    )
+    window = main_window_module.MainWindow()
+    window.api.create_project(tmp_path, "話追加テスト")
+    chapter = window.api.create_chapter("第一章")
+    first = window.api.create_episode(chapter.id, "第一話")
+    second = window.api.create_episode(chapter.id, "第二話")
+    third = window.api.create_episode(chapter.id, "第三話")
+    window.refresh_tree()
+
+    window.tree.setCurrentItem(window.tree.topLevelItem(0))
+    assert window.add_episode_action.isEnabled()
+    window.add_episode()
+    appended = chapter.episodes[-1]
+    assert [episode.id for episode in chapter.episodes] == [
+        first.id, second.id, third.id, appended.id
+    ]
+
+    window.tree.select_episode(second.id)
+    window.tabs.setCurrentWidget(window.reference_tab)
+    window.add_episode()
+    app.processEvents()
+
+    inserted = chapter.episodes[2]
+    assert [episode.title for episode in chapter.episodes] == [
+        "第一話", "第二話", "新しい話", "第三話", "新しい話"
+    ]
+    assert inserted.id not in {first.id, second.id, third.id, appended.id}
+    assert window.api.project.find_episode_parent(inserted.id).id == chapter.id
+    assert window.current_episode_id == inserted.id
+    assert window.tree.selected_identity() == ("episode", inserted.id)
+    assert window.tabs.currentWidget() is window.reference_tab
+
+    window.api.reorder_structure(
+        [(chapter.id, [third.id, inserted.id, second.id, first.id, appended.id])]
+    )
+    assert [episode.id for episode in chapter.episodes] == [
+        third.id, inserted.id, second.id, first.id, appended.id
+    ]
     window.close()
     app.processEvents()
 

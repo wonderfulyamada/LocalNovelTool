@@ -51,8 +51,10 @@ class CoreAPI:
     def delete_chapter(self, chapter_id: str) -> None:
         self._require().delete_chapter(chapter_id)
 
-    def create_episode(self, chapter_id: str, title: str) -> Episode:
-        return self._require().create_episode(chapter_id, title)
+    def create_episode(
+        self, chapter_id: str, title: str, after_episode_id: str | None = None
+    ) -> Episode:
+        return self._require().create_episode(chapter_id, title, after_episode_id)
 
     def rename_episode(self, episode_id: str, title: str) -> None:
         self._require().rename_episode(episode_id, title)

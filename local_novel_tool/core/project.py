@@ -192,7 +192,9 @@ class NovelProject:
         self.chapters = [item for item in self.chapters if item.id != chapter_id]
         self.save_metadata()
 
-    def create_episode(self, chapter_id: str, title: str) -> Episode:
+    def create_episode(
+        self, chapter_id: str, title: str, after_episode_id: str | None = None
+    ) -> Episode:
         chapter = self.get_chapter(chapter_id)
         episode_id = self._new_id("ep")
         episode = Episode(
@@ -201,7 +203,15 @@ class NovelProject:
             body_file=f"manuscript/{episode_id}.txt",
             note_file=f"episode_notes/{episode_id}.txt",
         )
-        chapter.episodes.append(episode)
+        if after_episode_id is None:
+            chapter.episodes.append(episode)
+        else:
+            for index, existing in enumerate(chapter.episodes):
+                if existing.id == after_episode_id:
+                    chapter.episodes.insert(index + 1, episode)
+                    break
+            else:
+                raise ProjectError("指定された話はこの章にありません。")
         self.write_text(episode.body_file, "")
         self.write_text(episode.note_file, "")
         self.save_metadata()

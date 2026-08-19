@@ -441,7 +441,7 @@ class MainWindow(QMainWindow):
         self.backup_action.setEnabled(has_project and not self._backup_is_running())
         self.open_folder_action.setEnabled(has_project)
         self.add_chapter_action.setEnabled(has_project)
-        self.add_episode_action.setEnabled(chapter_selected)
+        self.add_episode_action.setEnabled(chapter_selected or episode_selected)
         self.rename_action.setEnabled(item_selected)
         self.delete_action.setEnabled(item_selected)
         self._set_episode_editors_enabled(bool(episode_selected))
@@ -955,12 +955,12 @@ class MainWindow(QMainWindow):
             return
         kind, selected_id = self.tree.selected_identity()
         chapter_id = None
+        after_episode_id = None
         if kind == "chapter":
             chapter_id = selected_id
         elif kind == "episode" and selected_id:
             chapter_id = self.api.project.find_episode_parent(selected_id).id
-        elif self.api.chapters():
-            chapter_id = self.api.chapters()[0].id
+            after_episode_id = selected_id
         if chapter_id is None:
             QMessageBox.information(
                 self, "話追加", "先に章を追加してください。"
@@ -968,7 +968,7 @@ class MainWindow(QMainWindow):
             return
         title, ok = QInputDialog.getText(self, "話追加", "話タイトル")
         if ok:
-            episode = self.api.create_episode(chapter_id, title)
+            episode = self.api.create_episode(chapter_id, title, after_episode_id)
             self.refresh_tree()
             self.tree.select_episode(episode.id)
 
