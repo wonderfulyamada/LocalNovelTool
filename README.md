@@ -1,5 +1,48 @@
 # LocalNovelTool
 
+A fully local Windows desktop application for writing long-form fiction while keeping drafts, notes, references, plot structure, and timeline information close at hand.
+
+## English Overview
+
+LocalNovelTool is designed around a simple constraint: the writer should spend time writing, not hunting through folders for context.
+
+The application stores project data locally in readable UTF-8 text and JSON rather than locking it into an opaque proprietary format.
+
+### Engineering highlights
+
+- Python + PySide6 / Qt desktop application
+- Chapter / scene tree with drag-and-drop organization
+- Cross-project search across manuscript, notes, references, plot, and timeline data
+- Horizontal and vertical manuscript preview, including Japanese ruby notation
+- Automatic saving plus crash-recovery support
+- Backup, migration, and corruption-handling paths
+- Local-only storage with no required cloud service
+- Portable Windows build pipeline
+- Automated pytest suite with 87 test functions
+
+### Screenshots
+
+![LocalNovelTool](docs/screenshot.png)
+
+![Main editor](docs/screenshot_main.png)
+
+![Plot management](docs/screenshot_plot.png)
+
+![Vertical preview](docs/screenshot_vertical.png)
+
+### Tech stack
+
+- Python
+- PySide6 / Qt
+- pytest
+- pyside6-deploy / Nuitka
+
+Latest Windows builds are available from GitHub Releases.
+
+---
+
+## 日本語
+
 小説を書くことに集中するための、Windows向け・完全ローカルの執筆支援ツールです。
 
 「この設定なんだっけ？」
