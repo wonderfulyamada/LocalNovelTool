@@ -2,6 +2,8 @@
 
 A fully local Windows desktop application for writing long-form fiction while keeping drafts, notes, references, plot structure, and timeline information close at hand.
 
+> **Current status:** The repository source is version 0.3.0. The currently published Windows release is v0.2.0, so it may not include every feature described by the current source documentation. This is a personal project; it is not a hosted service or a commissioned product.
+
 ## English Overview
 
 LocalNovelTool is designed around a simple constraint: the writer should spend time writing, not hunting through folders for context.
@@ -37,7 +39,7 @@ The application stores project data locally in readable UTF-8 text and JSON rath
 - pytest
 - pyside6-deploy / Nuitka
 
-Latest Windows builds are available from GitHub Releases.
+The currently published Windows build is [v0.2.0](../../releases/tag/v0.2.0). See the Japanese section below for the version note.
 
 ---
 
@@ -74,7 +76,7 @@ Latest Windows builds are available from GitHub Releases.
 
 ## Download
 
-最新版は GitHub Releases からダウンロードできます。
+現在 GitHub Releases で配布している Windows 版は **v0.2.0** です。リポジトリのソースは v0.3.0 のため、この README にある現行ソース向けの機能がすべて v0.2.0 に含まれるとは限りません。ダウンロード前に、必要な機能とリリース版の内容を確認してください。
 
 ZIPを展開し、`LocalNovelTool.exe` を起動するだけで使用できます。
 Pythonのインストールは不要です。
@@ -168,6 +170,10 @@ LocalNovelToolを終了し、新しいバージョンのファイルを既存の
 - pyside6-deploy / Nuitka
 
 Windows 10 / 11 x64向けです。詳細なビルド手順は [BUILD_WINDOWS.md](BUILD_WINDOWS.md) を参照してください。
+
+## 開発について
+
+個人プロジェクトです。作者は課題の整理、機能要件の決定、実装案の確認、動作確認、問題の調査と修正方針の判断を担当しています。実装と検証には AI コーディングツールを利用しています。
 
 ## ライセンス
 
